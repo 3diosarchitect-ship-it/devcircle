@@ -1,36 +1,156 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DevCircle
 
-## Getting Started
+**Build. Connect. Get Opportunities.**
 
-First, run the development server:
+A student developer community MVP — not a generic job board.
+
+Students create a technical profile → automatically join skill communities → discover people & teammates → showcase proof of work → get matched opportunities.
+
+## Stack
+
+- Next.js (App Router) + TypeScript
+- Tailwind CSS + shadcn/ui
+- Supabase (Auth + Postgres + RLS)
+- Lucide icons
+
+## Quick start
+
+### 1. Install
+
+```bash
+npm install
+```
+
+### 2. Create a Supabase project
+
+1. Go to [https://supabase.com](https://supabase.com) and create a project
+2. Open **SQL Editor** and run migrations in order:
+
+```text
+supabase/migrations/001_initial_schema.sql
+supabase/migrations/002_qa_rls_polish.sql
+supabase/migrations/003_seed_skills.sql
+```
+
+Then run `npm run seed` for demo students, communities, opportunities, and posts.
+
+3. In **Project Settings → API**, copy:
+   - Project URL
+   - `anon` `public` key
+   - `service_role` key (server only — never expose in the browser)
+
+### 3. Environment variables
+
+```bash
+cp .env.example .env.local
+```
+
+Fill in:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+ADMIN_EMAILS=admin@devcircle.demo
+```
+
+### 4. Auth settings (recommended for demo)
+
+In Supabase **Authentication → Providers → Email**:
+
+- Disable “Confirm email” for faster local demos (optional)
+
+**Authentication → URL configuration**:
+
+- Site URL: `http://localhost:3000`
+- Redirect URLs: `http://localhost:3000/auth/callback`
+
+### 5. Seed demo data
+
+```bash
+npm run seed
+```
+
+This creates:
+
+- Skills + communities
+- 10 demo students
+- 15 demo opportunities (labelled **Demo Opportunity**)
+- Projects, posts, team requests, notifications
+- Admin: `admin@devcircle.demo` / `demo123456`
+
+Demo student login:
+
+| Email | Password |
+|-------|----------|
+| `rahul@devcircle.demo` | `demo123456` |
+| `priya@devcircle.demo` | `demo123456` |
+| `admin@devcircle.demo` | `demo123456` |
+
+### 6. Run
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Product loop
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```text
+STUDENT → SKILLS → AUTOMATIC COMMUNITIES → PEOPLE → PROJECTS → OPPORTUNITIES → PROOF OF WORK
+```
 
-## Learn More
+## Main routes
 
-To learn more about Next.js, take a look at the following resources:
+| Route | Description |
+|-------|-------------|
+| `/` | Landing |
+| `/register` `/login` | Auth |
+| `/onboarding` | 4-step student onboarding |
+| `/dashboard` | For You feed |
+| `/communities` `/communities/[slug]` | Communities + feed |
+| `/opportunities` | Matched opportunity feed |
+| `/teammates` | Find teammates |
+| `/people` | Developer directory |
+| `/profile` `/settings` | Own profile |
+| `/u/[username]` | Public developer profile |
+| `/search` | Global search |
+| `/admin` | Demo admin (admin users only) |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Matching
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Deterministic TypeScript scoring (no AI API):
 
-## Deploy on Vercel
+- Skills **50%**
+- Opportunity type **25%**
+- Location / remote **15%**
+- Experience level **10%**
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Security notes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Passwords via Supabase Auth only
+- RLS enabled; students edit only their own profile
+- `SUPABASE_SERVICE_ROLE_KEY` is server-only (seed script / never shipped to client)
+
+## Future (not in this MVP UI)
+
+Code is structured for later:
+
+- Company / recruiter accounts
+- Posting opportunities from companies
+- Shortlist / contact / hire flows
+- Paid projects + platform fee
+- GitHub OAuth + repo import
+
+Look for `// FUTURE: recruiter functionality` comments.
+
+## Deploy (same day)
+
+1. Push to GitHub
+2. Deploy on [Vercel](https://vercel.com)
+3. Add the same env vars
+4. Set Supabase redirect URLs to your production domain
+5. Re-run seed against the production Supabase project if needed
+
+Temporary product name: **DevCircle**.
