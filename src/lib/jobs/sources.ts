@@ -92,13 +92,17 @@ const INDIA_HINT =
 
 export function stripHtml(html: string): string {
   return html
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/<style[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -682,7 +686,7 @@ export async function fetchHimalayasJobs(
   return out;
 }
 
-/** Curated Greenhouse public boards (no auth). */
+/** Curated Greenhouse public boards (no auth). Discord careers use this board. */
 const GREENHOUSE_BOARDS = [
   "groww",
   "airbnb",
@@ -697,7 +701,21 @@ const GREENHOUSE_BOARDS = [
   "airtable",
 ];
 
-/** Greenhouse Job Board API — public company boards. */
+const GREENHOUSE_COMPANY_NAMES: Record<string, string> = {
+  groww: "Groww",
+  airbnb: "Airbnb",
+  dropbox: "Dropbox",
+  discord: "Discord",
+  datadog: "Datadog",
+  cloudflare: "Cloudflare",
+  gitlab: "GitLab",
+  twilio: "Twilio",
+  coinbase: "Coinbase",
+  robinhood: "Robinhood",
+  airtable: "Airtable",
+};
+
+/** Greenhouse Job Board API — public company boards (`?content=true` for richer data). */
 export async function fetchGreenhouseJobs(
   catalog: string[]
 ): Promise<NormalizedJob[]> {
@@ -706,7 +724,7 @@ export async function fetchGreenhouseJobs(
 
   for (const board of GREENHOUSE_BOARDS) {
     const res = await fetch(
-      `https://boards-api.greenhouse.io/v1/boards/${board}/jobs`,
+      `https://boards-api.greenhouse.io/v1/boards/${board}/jobs?content=true`,
       {
         next: { revalidate: 0 },
         headers: {
@@ -723,37 +741,53 @@ export async function fetchGreenhouseJobs(
         absolute_url?: string;
         location?: { name?: string };
         updated_at?: string;
+        first_published?: string;
+        content?: string;
+        company_name?: string;
+        departments?: Array<{ name?: string }>;
+        offices?: Array<{ name?: string; location?: string }>;
       }>;
     };
 
     const company =
-      board === "groww"
-        ? "Groww"
-        : board.charAt(0).toUpperCase() + board.slice(1);
+      GREENHOUSE_COMPANY_NAMES[board] ||
+      board.charAt(0).toUpperCase() + board.slice(1);
 
     for (const j of json.jobs || []) {
       const apply = (j.absolute_url || "").trim();
       if (!apply || !j.title || seen.has(apply)) continue;
-      if (!isTechJob(j.title, [])) continue;
+      const depts = (j.departments || [])
+        .map((d) => d.name || "")
+        .filter(Boolean);
+      if (!isTechJob(j.title, depts)) continue;
       seen.add(apply);
-      const loc = j.location?.name || "See listing";
-      const skills = matchSkills([], catalog, j.title, loc);
+      const officeLoc = (j.offices || [])
+        .map((o) => o.location || o.name || "")
+        .filter(Boolean)
+        .join(", ");
+      const loc = j.location?.name || officeLoc || "See listing";
+      const plain = stripHtml(j.content || "").slice(0, 600);
+      const skills = matchSkills(depts, catalog, j.title, plain || loc);
       if (skills.length === 0) continue;
-      const india = isIndiaLocation(loc, j.title);
+      const india = isIndiaLocation(loc, officeLoc, j.title, plain);
+      const brand = (j.company_name || company).trim();
       out.push({
         title: j.title.trim(),
-        company,
-        type: mapJobType(j.title),
-        work_mode: /remote/i.test(loc) ? "remote" : "hybrid",
+        company: brand,
+        type: mapJobType([j.title, ...depts].join(" ")),
+        work_mode: /remote/i.test(loc + officeLoc) ? "remote" : "hybrid",
         location: loc,
         skills,
         stipend: null,
-        description: `${j.title} at ${company} — ${loc}`,
+        description:
+          plain ||
+          `${j.title} at ${brand}${depts.length ? ` · ${depts.join(", ")}` : ""} — ${loc}`,
         apply_url: apply,
-        source: india ? "Greenhouse · India" : "Greenhouse",
+        source: india ? `${brand} · India` : brand,
         experience_level: /intern/i.test(j.title) ? "internship" : "junior",
         india_focus: india,
-        posted_at: j.updated_at || null,
+        // Prefer first_published (real post date) over updated_at
+        posted_at: j.first_published || j.updated_at || null,
       });
     }
   }

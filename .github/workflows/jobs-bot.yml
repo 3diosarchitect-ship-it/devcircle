@@ -1,27 +1,42 @@
-# Runs every 30 minutes (Vercel Hobby only allows daily crons).
+# Jobs bot — every ~30 minutes via GitHub Actions.
+# Vercel Hobby only allows 1x/day crons, so this is the primary schedule.
+# Note: GitHub can delay schedule events under load; offset minutes avoid :00/:30 spikes.
 name: Jobs bot (30m)
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "7,37 * * * *"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   ingest:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Trigger DevCircle jobs cron
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           CRON_URL: ${{ vars.CRON_URL }}
         run: |
+          set -euo pipefail
           URL="${CRON_URL:-https://devcircle-six.vercel.app/api/cron/jobs}"
-          if [ -z "$CRON_SECRET" ]; then
+          if [ -z "${CRON_SECRET:-}" ]; then
             echo "Missing CRON_SECRET repo secret"
             exit 1
           fi
-          curl -fsS -X GET \
+          echo "Hitting ${URL}"
+          HTTP=$(curl -sS -o /tmp/cron-out.json -w "%{http_code}" -X GET \
             -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${URL}?remotive=1"
+            -H "Accept: application/json" \
+            --max-time 90 \
+            "${URL}?remotive=1")
+          echo "HTTP ${HTTP}"
+          head -c 2000 /tmp/cron-out.json || true
           echo
+          if [ "$HTTP" != "200" ]; then
+            exit 1
+          fi
           echo "OK $(date -u +%Y-%m-%dT%H:%M:%SZ)"
