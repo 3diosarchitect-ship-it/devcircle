@@ -7,6 +7,10 @@ import { Search } from "lucide-react";
 import { MatchBadge } from "@/components/shared/match-badge";
 import { calculateMatchScore } from "@/lib/matching";
 import type { LookingFor, Opportunity } from "@/types";
+import {
+  isFreshStoredOpportunity,
+  jobRetentionCutoffIso,
+} from "@/lib/jobs/freshness";
 
 export default async function SearchPage({
   searchParams,
@@ -37,6 +41,8 @@ export default async function SearchPage({
     );
   }
 
+  const cutoff = jobRetentionCutoffIso();
+
   const [{ data: communities }, { data: students }, { data: opportunities }, { data: profile }, { data: skillRows }] =
     await Promise.all([
       supabase
@@ -55,6 +61,7 @@ export default async function SearchPage({
       supabase
         .from("opportunities")
         .select("*")
+        .gte("created_at", cutoff)
         .or(
           `title.ilike.%${query}%,company.ilike.%${query}%,description.ilike.%${query}%`
         )
@@ -90,12 +97,19 @@ export default async function SearchPage({
   }
 
   // Opportunities by skill in array
-  const skillOppExtra = (await supabase.from("opportunities").select("*").limit(40))
-    .data?.filter((o) =>
+  const skillOppExtra = (
+    await supabase
+      .from("opportunities")
+      .select("*")
+      .gte("created_at", cutoff)
+      .limit(40)
+  ).data
+    ?.filter((o) =>
       (o.skills || []).some((s: string) =>
         s.toLowerCase().includes(query.toLowerCase())
       )
     )
+    .filter(isFreshStoredOpportunity)
     .slice(0, 10);
 
   const mergedStudents = [
@@ -107,6 +121,7 @@ export default async function SearchPage({
 
   const oppMap = new Map<string, Opportunity>();
   for (const o of [...(opportunities || []), ...(skillOppExtra || [])]) {
+    if (!isFreshStoredOpportunity(o)) continue;
     oppMap.set(o.id, o as Opportunity);
   }
 

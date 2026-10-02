@@ -15,6 +15,10 @@ import { Button } from "@/components/ui/button";
 import { calculateMatchScore } from "@/lib/matching";
 import { isOpenSourceListing } from "@/lib/utils";
 import type { LookingFor, Opportunity, PostType, Profile } from "@/types";
+import {
+  isFreshStoredOpportunity,
+  jobRetentionCutoffIso,
+} from "@/lib/jobs/freshness";
 
 export default async function CommunityDetailPage({
   params,
@@ -89,29 +93,34 @@ export default async function CommunityDetailPage({
     skillsByProfile.set(row.profile_id, arr);
   }
 
-  // Community-wise opportunities (skill match) — prefer real jobs
+  // Community-wise opportunities (skill match) — prefer real jobs from last 20 days
   let relatedOpps: Opportunity[] = [];
   if (skillName) {
+    const cutoff = jobRetentionCutoffIso();
     const { data: opps } = await supabase
       .from("opportunities")
       .select("*")
       .eq("is_demo", false)
+      .gte("created_at", cutoff)
       .contains("skills", [skillName])
       .order("created_at", { ascending: false })
-      .limit(8);
-    relatedOpps = (opps || []).filter(
-      (o) => !isOpenSourceListing(o as Opportunity)
-    ) as Opportunity[];
+      .limit(12);
+    relatedOpps = (opps || [])
+      .filter((o) => isFreshStoredOpportunity(o as Opportunity))
+      .filter((o) => !isOpenSourceListing(o as Opportunity))
+      .slice(0, 8) as Opportunity[];
     if (!relatedOpps.length) {
       const { data: demoOpps } = await supabase
         .from("opportunities")
         .select("*")
+        .gte("created_at", cutoff)
         .contains("skills", [skillName])
         .order("created_at", { ascending: false })
-        .limit(8);
-      relatedOpps = ((demoOpps || []) as Opportunity[]).filter(
-        (o) => !isOpenSourceListing(o)
-      );
+        .limit(12);
+      relatedOpps = ((demoOpps || []) as Opportunity[])
+        .filter(isFreshStoredOpportunity)
+        .filter((o) => !isOpenSourceListing(o))
+        .slice(0, 8);
     }
   }
 
@@ -162,7 +171,15 @@ export default async function CommunityDetailPage({
             />
           ) : (
             <PostFeedList
-              posts={(posts || []).map((p) => {
+              posts={(posts || [])
+                .filter((p) => {
+                  if (p.type !== "opportunity") return true;
+                  return isFreshStoredOpportunity({
+                    created_at: p.created_at,
+                    description: p.content,
+                  });
+                })
+                .map((p) => {
       const author = p.author as {
                   username: string | null;
         full_name: string | null;

@@ -1,14 +1,25 @@
 import { createServiceClient } from "@/lib/supabase/middleware";
 import {
+  isFreshPortalDate,
+  jobRetentionCutoffIso,
+  parsePostedByDate,
+  JOB_RETENTION_DAYS,
+} from "@/lib/jobs/freshness";
+import {
   fetchAdzunaIndiaJobs,
   fetchArbeitnowJobs,
+  fetchAshbyJobs,
+  fetchGreenhouseJobs,
   fetchHimalayasJobs,
+  fetchHnWhoIsHiringJobs,
   fetchJobicyJobs,
+  fetchLeverJobs,
   fetchRemoteOkJobs,
   fetchRemotiveIndiaJobs,
   fetchRemotiveJobs,
   fetchTheMuseJobs,
   postedByLine,
+  withPostedByLine,
   type NormalizedJob,
 } from "@/lib/jobs/sources";
 
@@ -20,10 +31,95 @@ export type IngestResult = {
   inserted: number;
   posted: number;
   skipped: number;
+  expired: number;
   sources: string[];
   errors: string[];
   india: number;
 };
+
+/** Delete real (non-demo) jobs older than JOB_RETENTION_DAYS + matching bot posts. */
+async function purgeExpiredJobs(
+  supabase: ReturnType<typeof createServiceClient>
+): Promise<{ deletedJobs: number; deletedPosts: number }> {
+  const cutoff = jobRetentionCutoffIso();
+
+  // Age out by when we saved the row
+  const { data: byAge, error: selectErr } = await supabase
+    .from("opportunities")
+    .select("id, apply_url, description, created_at")
+    .eq("is_demo", false)
+    .lt("created_at", cutoff);
+
+  if (selectErr) throw new Error(`purge select: ${selectErr.message}`);
+
+  // Also drop recently-saved rows that still carry an old portal "Posted by … on …" date
+  const { data: recent, error: recentErr } = await supabase
+    .from("opportunities")
+    .select("id, apply_url, description, created_at")
+    .eq("is_demo", false)
+    .gte("created_at", cutoff)
+    .limit(500);
+
+  if (recentErr) throw new Error(`purge recent: ${recentErr.message}`);
+
+  const stalePortal = (recent || []).filter((r) => {
+    const portal = parsePostedByDate(r.description);
+    return portal != null && !isFreshPortalDate(portal);
+  });
+
+  const expiredMap = new Map<
+    string,
+    { id: string; apply_url: string | null }
+  >();
+  for (const r of [...(byAge || []), ...stalePortal]) {
+    expiredMap.set(r.id, { id: r.id, apply_url: r.apply_url });
+  }
+  const expired = [...expiredMap.values()];
+  if (!expired.length) return { deletedJobs: 0, deletedPosts: 0 };
+
+  const urls = expired
+    .map((r) => r.apply_url)
+    .filter((u): u is string => Boolean(u));
+  const ids = expired.map((r) => r.id);
+
+  let deletedPosts = 0;
+  if (urls.length) {
+    const { data: bot } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("username", BOT_USERNAME)
+      .maybeSingle();
+    if (bot?.id) {
+      // Delete in chunks — PostgREST in() limits
+      for (let i = 0; i < urls.length; i += 80) {
+        const chunk = urls.slice(i, i + 80);
+        const { data: posts, error: postErr } = await supabase
+          .from("posts")
+          .delete()
+          .eq("author_id", bot.id)
+          .eq("type", "opportunity")
+          .in("link_url", chunk)
+          .select("id");
+        if (postErr) throw new Error(`purge posts: ${postErr.message}`);
+        deletedPosts += posts?.length || 0;
+      }
+    }
+  }
+
+  let deletedJobs = 0;
+  for (let i = 0; i < ids.length; i += 80) {
+    const chunk = ids.slice(i, i + 80);
+    const { data: deleted, error: delErr } = await supabase
+      .from("opportunities")
+      .delete()
+      .in("id", chunk)
+      .select("id");
+    if (delErr) throw new Error(`purge jobs: ${delErr.message}`);
+    deletedJobs += deleted?.length || 0;
+  }
+
+  return { deletedJobs, deletedPosts };
+}
 
 async function ensureJobsBot(
   supabase: ReturnType<typeof createServiceClient>
@@ -72,7 +168,7 @@ async function ensureJobsBot(
       username: BOT_USERNAME,
       full_name: "DevCircle Jobs Bot",
       headline:
-        "Auto-posts jobs from Remotive, Remote OK, Arbeitnow, The Muse, Jobicy, Himalayas (+ optional Adzuna India)",
+        "Auto-posts jobs from Remotive, Remote OK, Arbeitnow, The Muse, Jobicy, Himalayas, Greenhouse, Ashby, Lever, HN Who is Hiring (+ optional Adzuna India)",
       bio: "Fetches publicly available tech jobs from open job-board APIs every 30 minutes and shares them into skill-matched communities. LinkedIn/Naukri/Indeed are link-out only (no scrape).",
       onboarding_complete: true,
       is_demo: false,
@@ -114,19 +210,36 @@ export async function ingestJobs(options?: {
 
   const { data: skillRows } = await supabase.from("skills").select("name");
   const catalog = (skillRows || []).map((s) => s.name).filter(Boolean);
+  let expired = 0;
+  try {
+    const purged = await purgeExpiredJobs(supabase);
+    expired = purged.deletedJobs;
+    if (purged.deletedJobs || purged.deletedPosts) {
+      sources.push(
+        `purged:${purged.deletedJobs}jobs/${purged.deletedPosts}posts(>${JOB_RETENTION_DAYS}d)`
+      );
+    }
+  } catch (e) {
+    errors.push(`purge: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   if (catalog.length === 0) {
     return {
       fetched: 0,
       inserted: 0,
       posted: 0,
       skipped: 0,
-      sources: [],
-      errors: ["No skills in DB — run seed first"],
+      expired,
+      sources,
+      errors: errors.length
+        ? errors
+        : ["No skills in DB — run seed first"],
       india: 0,
     };
   }
 
   const batches: NormalizedJob[] = [];
+  let staleFromSource = 0;
 
   async function run(
     label: string,
@@ -134,8 +247,10 @@ export async function ingestJobs(options?: {
   ): Promise<void> {
     try {
       const jobs = await fn();
-      batches.push(...jobs);
-      sources.push(`${label}:${jobs.length}`);
+      const fresh = jobs.filter((j) => isFreshPortalDate(j.posted_at));
+      staleFromSource += jobs.length - fresh.length;
+      batches.push(...fresh);
+      sources.push(`${label}:${fresh.length}`);
     } catch (e) {
       errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -146,11 +261,19 @@ export async function ingestJobs(options?: {
   await run("TheMuse", () => fetchTheMuseJobs(catalog));
   await run("Jobicy", () => fetchJobicyJobs(catalog));
   await run("Himalayas", () => fetchHimalayasJobs(catalog));
+  await run("Greenhouse", () => fetchGreenhouseJobs(catalog));
+  await run("Ashby", () => fetchAshbyJobs(catalog));
+  await run("Lever", () => fetchLeverJobs(catalog));
+  await run("HNHiring", () => fetchHnWhoIsHiringJobs(catalog));
   await run("AdzunaIN", () => fetchAdzunaIndiaJobs(catalog));
 
   if (includeRemotive) {
     await run("Remotive", () => fetchRemotiveJobs(catalog));
     await run("RemotiveIN", () => fetchRemotiveIndiaJobs(catalog));
+  }
+
+  if (staleFromSource > 0) {
+    sources.push(`ignored_stale:${staleFromSource}`);
   }
 
   const jobs = dedupeJobs(batches);
@@ -165,15 +288,39 @@ export async function ingestJobs(options?: {
 
   const urls = prioritized.map((j) => j.apply_url);
   const { data: existing } = urls.length
-    ? await supabase.from("opportunities").select("apply_url").in("apply_url", urls)
-    : { data: [] as { apply_url: string }[] };
+    ? await supabase
+        .from("opportunities")
+        .select("id, apply_url, description, source")
+        .in("apply_url", urls)
+    : { data: [] as { id: string; apply_url: string; description: string | null; source: string | null }[] };
 
-  const existingUrls = new Set(
-    (existing || []).map((r) => (r.apply_url || "").toLowerCase())
+  const existingByUrl = new Map(
+    (existing || []).map((r) => [(r.apply_url || "").toLowerCase(), r])
   );
 
+  // Fix wrong "Posted by … on 2 Oct" lines that used ingest day instead of portal date
+  let repaired = 0;
+  for (const job of prioritized) {
+    if (!job.posted_at) continue;
+    const row = existingByUrl.get(job.apply_url.toLowerCase());
+    if (!row) continue;
+    const correct = postedByLine(job.source, job.posted_at);
+    if ((row.description || "").includes(correct)) continue;
+    const nextDesc = withPostedByLine(
+      row.description || job.description,
+      job.source,
+      job.posted_at
+    );
+    const { error: repairErr } = await supabase
+      .from("opportunities")
+      .update({ description: nextDesc, source: job.source })
+      .eq("id", row.id);
+    if (!repairErr) repaired += 1;
+  }
+  if (repaired > 0) sources.push(`repaired_dates:${repaired}`);
+
   const fresh = prioritized
-    .filter((j) => !existingUrls.has(j.apply_url.toLowerCase()))
+    .filter((j) => !existingByUrl.has(j.apply_url.toLowerCase()))
     .slice(0, maxInsert);
 
   let inserted = 0;
@@ -191,11 +338,7 @@ export async function ingestJobs(options?: {
           location: j.location,
           skills: j.skills,
           stipend: j.stipend,
-          description: [
-            j.description,
-            "",
-            postedByLine(j.source, j.posted_at),
-          ].join("\n"),
+          description: withPostedByLine(j.description, j.source, j.posted_at),
           apply_url: j.apply_url,
           source: j.source,
           experience_level: j.experience_level,
@@ -348,7 +491,8 @@ export async function ingestJobs(options?: {
     fetched: jobs.length,
     inserted,
     posted,
-    skipped: jobs.length - fresh.length,
+    skipped: jobs.length - fresh.length + staleFromSource,
+    expired,
     sources,
     errors,
     india,

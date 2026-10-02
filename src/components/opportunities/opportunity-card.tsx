@@ -15,7 +15,8 @@ import { MatchBadge } from "@/components/shared/match-badge";
 import { SkillChip } from "@/components/shared/skill-chip";
 import { applyLinkLabel, cn, formatRelativeTime, isOpenSourceListing } from "@/lib/utils";
 import { detectJobBoard, jobBoardLabel } from "@/lib/jobs/big-boards";
-import { postedByLine } from "@/lib/jobs/sources";
+import { parsePostedByDate } from "@/lib/jobs/freshness";
+import { portalDisplayName } from "@/lib/jobs/sources";
 import { OPPORTUNITY_TYPE_LABELS, type Opportunity } from "@/types";
 import { toast } from "sonner";
 
@@ -54,15 +55,17 @@ export function OpportunityCard({
   const boardName = jobBoardLabel(board);
   const isOss = isOpenSourceListing(opportunity);
   const descRaw = opportunity.description || "";
-  const byMatch = descRaw.match(/Posted by .+ on .+$/m);
+  const byMatch = descRaw.match(/Posted by .+?( on .+)?$/m);
+  // Never fall back to created_at — that is ingest day, not the portal listing date
   const byLine =
     byMatch?.[0] ||
     (opportunity.source
-      ? postedByLine(opportunity.source, opportunity.created_at)
+      ? `Posted by ${portalDisplayName(opportunity.source)}`
       : null);
   const description = byMatch
-    ? descRaw.replace(/\n*Posted by .+ on .+$/m, "").trim()
+    ? descRaw.replace(/\n*Posted by .+?( on .+)?$/m, "").trim()
     : descRaw;
+  const portalPostedAt = parsePostedByDate(descRaw);
 
   function handleApply() {
     if (onApply) {
@@ -147,7 +150,9 @@ export function OpportunityCard({
           ) : null}
           <span className="inline-flex items-center gap-1">
             <Clock className="size-3.5" aria-hidden />
-            {formatRelativeTime(opportunity.created_at)}
+            {formatRelativeTime(
+              (portalPostedAt || new Date(opportunity.created_at)).toISOString()
+            )}
           </span>
         </div>
         {matchReasons && matchReasons.length > 0 ? (

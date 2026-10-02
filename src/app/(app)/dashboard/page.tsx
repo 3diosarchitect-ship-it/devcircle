@@ -13,6 +13,10 @@ import { Briefcase, ExternalLink, UsersRound } from "lucide-react";
 import type { LookingFor, Opportunity, Profile, PostType } from "@/types";
 import { POST_TYPE_LABELS } from "@/types";
 import { UserAvatar } from "@/components/shared/user-avatar";
+import {
+  isFreshStoredOpportunity,
+  jobRetentionCutoffIso,
+} from "@/lib/jobs/freshness";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -39,12 +43,15 @@ export default async function DashboardPage() {
     skillRows?.map((r) => (r.skill as unknown as { name: string })?.name).filter(Boolean) ||
     [];
 
+  const cutoff = jobRetentionCutoffIso();
+
   const [{ data: realOpps }, { data: saved }, { data: memberships }] =
     await Promise.all([
       supabase
         .from("opportunities")
         .select("*")
         .eq("is_demo", false)
+        .gte("created_at", cutoff)
         .order("created_at", { ascending: false })
         .limit(40),
       supabase
@@ -62,6 +69,7 @@ export default async function DashboardPage() {
     const { data: demoOpps } = await supabase
       .from("opportunities")
       .select("*")
+      .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
       .limit(40);
     opportunities = demoOpps;
@@ -70,6 +78,7 @@ export default async function DashboardPage() {
   const savedIds = new Set((saved || []).map((s) => s.opportunity_id));
 
   const matched = (opportunities || [])
+    .filter((opp) => isFreshStoredOpportunity(opp as Opportunity))
     .filter((opp) => !isOpenSourceListing(opp as Opportunity))
     .map((opp) => {
       const result = calculateMatchScore(

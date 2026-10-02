@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/server";
+import { jobRetentionCutoffIso } from "@/lib/jobs/freshness";
 
 const FALLBACK_COMMUNITIES = [
   { name: "React Developers", slug: "react-developers", member_count: 12 },
@@ -72,6 +73,7 @@ export default async function LandingPage() {
         supabase
           .from("opportunities")
           .select("title, company, type, skills, stipend, work_mode")
+          .gte("created_at", jobRetentionCutoffIso())
           .order("created_at", { ascending: false })
           .limit(4),
       ]);

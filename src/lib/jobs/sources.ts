@@ -23,21 +23,43 @@ export function portalDisplayName(source: string): string {
   return source.split("·")[0].trim() || source;
 }
 
-/** e.g. 14 Sep 2026 */
+const SHORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+/** e.g. 14 Sep 2026 — always from portal date when provided, never "today" by accident */
 export function formatPortalDate(date?: string | Date | null): string {
-  const d = date ? new Date(date) : new Date();
-  if (Number.isNaN(d.getTime())) {
-    return new Date().toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
+  let d: Date | null = null;
+  if (date instanceof Date) {
+    d = date;
+  } else if (typeof date === "string" && date.trim()) {
+    // Remotive sends "2026-09-14T20:33:27" without Z — treat as UTC
+    const raw = date.trim();
+    d = new Date(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) &&
+        !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)
+        ? `${raw}Z`
+        : raw
+    );
   }
-  return d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  if (!d || Number.isNaN(d.getTime())) {
+    return "unknown date";
+  }
+  const day = d.getUTCDate();
+  const month = SHORT_MONTHS[d.getUTCMonth()];
+  const year = d.getUTCFullYear();
+  return `${day} ${month} ${year}`;
 }
 
 /** Line for job description: Posted by Himalayas on 14 Sep 2026 */
@@ -45,7 +67,21 @@ export function postedByLine(
   source: string,
   postedAt?: string | Date | null
 ): string {
+  if (postedAt == null || postedAt === "") {
+    return `Posted by ${portalDisplayName(source)}`;
+  }
   return `Posted by ${portalDisplayName(source)} on ${formatPortalDate(postedAt)}`;
+}
+
+/** Replace or append the Posted by line using the portal listing date. */
+export function withPostedByLine(
+  description: string,
+  source: string,
+  postedAt?: string | Date | null
+): string {
+  const line = postedByLine(source, postedAt);
+  const stripped = description.replace(/\n*Posted by .+?( on .+)?$/m, "").trim();
+  return `${stripped}\n\n${line}`;
 }
 
 const TECH_HINT =
@@ -314,6 +350,7 @@ export async function fetchRemotiveIndiaJobs(
         description?: string;
         candidate_required_location?: string;
         category?: string;
+        publication_date?: string;
       }>;
     };
     for (const j of json.jobs || []) {
@@ -336,6 +373,7 @@ export async function fetchRemotiveIndiaJobs(
         source: "Remotive · India",
         experience_level: /intern/i.test(j.title) ? "internship" : "junior",
         india_focus: true,
+        posted_at: j.publication_date || null,
       });
     }
   }
@@ -640,6 +678,382 @@ export async function fetchHimalayasJobs(
         posted_at: postedAt,
       });
     }
+  }
+  return out;
+}
+
+/** Curated Greenhouse public boards (no auth). */
+const GREENHOUSE_BOARDS = [
+  "groww",
+  "airbnb",
+  "dropbox",
+  "discord",
+  "datadog",
+  "cloudflare",
+  "gitlab",
+  "twilio",
+  "coinbase",
+  "robinhood",
+  "airtable",
+];
+
+/** Greenhouse Job Board API — public company boards. */
+export async function fetchGreenhouseJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const board of GREENHOUSE_BOARDS) {
+    const res = await fetch(
+      `https://boards-api.greenhouse.io/v1/boards/${board}/jobs`,
+      {
+        next: { revalidate: 0 },
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "DevCircleJobsBot/1.0",
+        },
+      }
+    );
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      jobs?: Array<{
+        id?: number;
+        title?: string;
+        absolute_url?: string;
+        location?: { name?: string };
+        updated_at?: string;
+      }>;
+    };
+
+    const company =
+      board === "groww"
+        ? "Groww"
+        : board.charAt(0).toUpperCase() + board.slice(1);
+
+    for (const j of json.jobs || []) {
+      const apply = (j.absolute_url || "").trim();
+      if (!apply || !j.title || seen.has(apply)) continue;
+      if (!isTechJob(j.title, [])) continue;
+      seen.add(apply);
+      const loc = j.location?.name || "See listing";
+      const skills = matchSkills([], catalog, j.title, loc);
+      if (skills.length === 0) continue;
+      const india = isIndiaLocation(loc, j.title);
+      out.push({
+        title: j.title.trim(),
+        company,
+        type: mapJobType(j.title),
+        work_mode: /remote/i.test(loc) ? "remote" : "hybrid",
+        location: loc,
+        skills,
+        stipend: null,
+        description: `${j.title} at ${company} — ${loc}`,
+        apply_url: apply,
+        source: india ? "Greenhouse · India" : "Greenhouse",
+        experience_level: /intern/i.test(j.title) ? "internship" : "junior",
+        india_focus: india,
+        posted_at: j.updated_at || null,
+      });
+    }
+  }
+  return out;
+}
+
+/** Curated Ashby public job boards (no auth). */
+const ASHBY_BOARDS = [
+  "linear",
+  "ramp",
+  "notion",
+  "openai",
+  "supabase",
+  "cursor",
+  "resend",
+  "clerk",
+];
+
+/** Ashby Job Board API — public postings. */
+export async function fetchAshbyJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const board of ASHBY_BOARDS) {
+    const res = await fetch(
+      `https://api.ashbyhq.com/posting-api/job-board/${board}`,
+      {
+        next: { revalidate: 0 },
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "DevCircleJobsBot/1.0",
+        },
+      }
+    );
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      jobs?: Array<{
+        id?: string;
+        title?: string;
+        department?: string;
+        team?: string;
+        employmentType?: string;
+        location?: string;
+        isRemote?: boolean;
+        workplaceType?: string;
+        jobUrl?: string;
+        publishedAt?: string;
+        descriptionPlain?: string;
+        descriptionHtml?: string;
+      }>;
+    };
+
+    const company = board.charAt(0).toUpperCase() + board.slice(1);
+
+    for (const j of json.jobs || []) {
+      const apply = (j.jobUrl || "").trim();
+      if (!apply || !j.title || seen.has(apply)) continue;
+      const tags = [j.department || "", j.team || "", j.employmentType || ""];
+      if (!isTechJob(j.title, tags)) continue;
+      seen.add(apply);
+      const plain = stripHtml(
+        j.descriptionPlain || j.descriptionHtml || ""
+      ).slice(0, 600);
+      const skills = matchSkills(tags, catalog, j.title, plain);
+      if (skills.length === 0) continue;
+      const loc =
+        j.location ||
+        (j.isRemote || /remote/i.test(j.workplaceType || "")
+          ? "Remote"
+          : "See listing");
+      const india = isIndiaLocation(loc, j.title, plain);
+      out.push({
+        title: j.title.trim(),
+        company,
+        type: mapJobType(j.employmentType || j.title),
+        work_mode:
+          j.isRemote || /remote/i.test(j.workplaceType || loc)
+            ? "remote"
+            : "hybrid",
+        location: loc,
+        skills,
+        stipend: null,
+        description: plain || `${j.title} at ${company}`,
+        apply_url: apply,
+        source: india ? "Ashby · India" : "Ashby",
+        experience_level: /intern/i.test(j.title) ? "internship" : "junior",
+        india_focus: india,
+        posted_at: j.publishedAt || null,
+      });
+    }
+  }
+  return out;
+}
+
+/** Curated Lever public postings (no auth). */
+const LEVER_COMPANIES = ["spotify", "palantir", "wealthfront"];
+
+/** Lever Postings API — public company postings. */
+export async function fetchLeverJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const companySlug of LEVER_COMPANIES) {
+    const res = await fetch(
+      `https://api.lever.co/v0/postings/${companySlug}?mode=json`,
+      {
+        next: { revalidate: 0 },
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "DevCircleJobsBot/1.0",
+        },
+      }
+    );
+    if (!res.ok) continue;
+    const json = (await res.json()) as Array<{
+      id?: string;
+      text?: string;
+      hostedUrl?: string;
+      applyUrl?: string;
+      createdAt?: number;
+      categories?: {
+        location?: string;
+        commitment?: string;
+        team?: string;
+        department?: string;
+      };
+      descriptionPlain?: string;
+      description?: string;
+    }>;
+
+    const company =
+      companySlug.charAt(0).toUpperCase() + companySlug.slice(1);
+
+    for (const j of json || []) {
+      const apply = (j.hostedUrl || j.applyUrl || "").trim();
+      if (!apply || !j.text || seen.has(apply)) continue;
+      const tags = [
+        j.categories?.team || "",
+        j.categories?.department || "",
+        j.categories?.commitment || "",
+      ];
+      if (!isTechJob(j.text, tags)) continue;
+      seen.add(apply);
+      const plain = stripHtml(
+        j.descriptionPlain || j.description || ""
+      ).slice(0, 600);
+      const skills = matchSkills(tags, catalog, j.text, plain);
+      if (skills.length === 0) continue;
+      const loc = j.categories?.location || "See listing";
+      const india = isIndiaLocation(loc, j.text, plain);
+      out.push({
+        title: j.text.trim(),
+        company,
+        type: mapJobType(j.categories?.commitment || j.text),
+        work_mode: /remote/i.test(loc) ? "remote" : "hybrid",
+        location: loc,
+        skills,
+        stipend: null,
+        description: plain || `${j.text} at ${company}`,
+        apply_url: apply,
+        source: india ? "Lever · India" : "Lever",
+        experience_level: /intern/i.test(j.text) ? "internship" : "junior",
+        india_focus: india,
+        posted_at: j.createdAt
+          ? new Date(j.createdAt).toISOString()
+          : null,
+      });
+    }
+  }
+  return out;
+}
+
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&#x2F;/gi, "/")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+/**
+ * Hacker News "Ask HN: Who is hiring?" via Algolia — latest monthly thread.
+ * Parses company comments; skips "who wants to be hired" seeker posts.
+ */
+export async function fetchHnWhoIsHiringJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const threadsRes = await fetch(
+    "https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=12",
+    {
+      next: { revalidate: 0 },
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "DevCircleJobsBot/1.0",
+      },
+    }
+  );
+  if (!threadsRes.ok) throw new Error(`HN Algolia ${threadsRes.status}`);
+  const threadsJson = (await threadsRes.json()) as {
+    hits?: Array<{ objectID: string; title?: string }>;
+  };
+  const hiring = (threadsJson.hits || []).find(
+    (h) =>
+      /Who is hiring/i.test(h.title || "") &&
+      !/want|hired/i.test((h.title || "").replace(/Who is hiring/i, ""))
+  );
+  if (!hiring) return [];
+
+  const commentsRes = await fetch(
+    `https://hn.algolia.com/api/v1/search_by_date?tags=comment,story_${hiring.objectID}&hitsPerPage=80`,
+    {
+      next: { revalidate: 0 },
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "DevCircleJobsBot/1.0",
+      },
+    }
+  );
+  if (!commentsRes.ok) return [];
+  const commentsJson = (await commentsRes.json()) as {
+    hits?: Array<{
+      objectID: string;
+      author?: string;
+      comment_text?: string;
+      created_at?: string;
+      parent_id?: number;
+      story_id?: number;
+    }>;
+  };
+
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const c of commentsJson.hits || []) {
+    // Top-level hiring posts only (parent is the story)
+    if (String(c.parent_id) !== hiring.objectID) continue;
+    const raw = decodeHtmlEntities(stripHtml(c.comment_text || ""));
+    if (!raw || raw.length < 40) continue;
+    // Skip job seekers
+    if (/willing to relocate|looking for (a )?role|seeking|for hire/i.test(raw))
+      continue;
+    if (!/https?:\/\//i.test(raw) && !/\|/.test(raw)) continue;
+
+    const parts = raw.split("|").map((p) => p.trim()).filter(Boolean);
+    if (parts.length < 2) continue;
+
+    const company = parts[0].slice(0, 80);
+    // Skip if first token looks like a person bio line
+    if (/^location:/i.test(company)) continue;
+
+    const urlMatch = raw.match(/https?:\/\/[^\s)]+/i);
+    const apply = (
+      urlMatch?.[0]?.replace(/[.,;]+$/, "") ||
+      `https://news.ycombinator.com/item?id=${c.objectID}`
+    ).trim();
+    if (seen.has(apply)) continue;
+    seen.add(apply);
+
+    const rolePart =
+      parts.find((p) =>
+        /engineer|developer|designer|intern|fullstack|full.?stack|backend|frontend|devops|sre|product|data|ml|ai|software/i.test(
+          p
+        )
+      ) || parts[1];
+    const title = rolePart.slice(0, 120);
+    if (!isTechJob(title, parts)) continue;
+
+    const locPart =
+      parts.find((p) =>
+        /remote|onsite|hybrid|india|bangalore|bengaluru|sf|nyc|london|europe|us\b|worldwide/i.test(
+          p
+        )
+      ) || "Remote / See listing";
+    const plain = raw.slice(0, 600);
+    const skills = matchSkills(parts, catalog, title, plain);
+    if (skills.length === 0) continue;
+    const india = isIndiaLocation(locPart, title, plain);
+
+    out.push({
+      title: title.trim(),
+      company: company.trim() || "Startup",
+      type: mapJobType(parts.join(" ")),
+      work_mode: /remote/i.test(locPart + raw) ? "remote" : "hybrid",
+      location: locPart.slice(0, 80),
+      skills,
+      stipend: null,
+      description: plain,
+      apply_url: apply,
+      source: india ? "HN Who is Hiring · India" : "HN Who is Hiring",
+      experience_level: /intern/i.test(title + raw) ? "internship" : "junior",
+      india_focus: india,
+      posted_at: c.created_at || null,
+    });
   }
   return out;
 }

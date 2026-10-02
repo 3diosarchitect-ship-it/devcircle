@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Briefcase } from "lucide-react";
 import type { LookingFor, Opportunity, OpportunityType, WorkMode } from "@/types";
 import { isOpenSourceListing } from "@/lib/utils";
+import {
+  isFreshStoredOpportunity,
+  jobRetentionCutoffIso,
+} from "@/lib/jobs/freshness";
 
 export default async function OpportunitiesPage({
   searchParams,
@@ -61,10 +65,13 @@ export default async function OpportunitiesPage({
     }
   }
 
+  const cutoff = jobRetentionCutoffIso();
+
   let query = supabase
     .from("opportunities")
     .select("*")
     .eq("is_demo", false)
+    .gte("created_at", cutoff)
     .order("created_at", { ascending: false });
 
   if (params.type) query = query.eq("type", params.type);
@@ -76,6 +83,7 @@ export default async function OpportunitiesPage({
     let demoQuery = supabase
       .from("opportunities")
       .select("*")
+      .gte("created_at", cutoff)
       .order("created_at", { ascending: false });
     if (params.type) demoQuery = demoQuery.eq("type", params.type);
     if (params.mode) demoQuery = demoQuery.eq("work_mode", params.mode);
@@ -89,7 +97,9 @@ export default async function OpportunitiesPage({
     .eq("profile_id", user.id);
   const savedIds = new Set((saved || []).map((s) => s.opportunity_id));
 
-  let list = (opportunities || []) as Opportunity[];
+  let list = ((opportunities || []) as Opportunity[]).filter(
+    isFreshStoredOpportunity
+  );
   if (communitySkill) {
     const s = communitySkill.toLowerCase();
     list = list.filter((o) =>
