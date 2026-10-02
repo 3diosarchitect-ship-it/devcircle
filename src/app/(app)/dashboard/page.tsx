@@ -241,13 +241,17 @@ export default async function DashboardPage() {
         ) : (
           <div className="space-y-3">
             {recentPosts.map((p) => {
-              const author = p.author as {
+              const authorRaw = p.author as unknown;
+              const author = (
+                Array.isArray(authorRaw) ? authorRaw[0] : authorRaw
+              ) as {
                 username: string | null;
                 full_name: string | null;
                 avatar_url: string | null;
               } | null;
               const community = communityById.get(p.community_id);
-              const linkUrl = (p as { link_url?: string | null }).link_url?.trim() || null;
+              const linkUrl =
+                (p as { link_url?: string | null }).link_url?.trim() || null;
               return (
                 <div
                   key={p.id}
