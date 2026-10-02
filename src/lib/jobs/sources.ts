@@ -101,17 +101,6 @@ function isTechJob(title: string, tags: string[]): boolean {
   return TECH_HINT.test(`${title} ${tags.join(" ")}`);
 }
 
-function ghHeaders(): HeadersInit {
-  const headers: Record<string, string> = {
-    Accept: "application/vnd.github+json",
-    "User-Agent": "DevCircleJobsBot/1.0",
-  };
-  if (process.env.GITHUB_TOKEN) {
-    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-  }
-  return headers;
-}
-
 export async function fetchArbeitnowJobs(
   catalog: string[]
 ): Promise<NormalizedJob[]> {
@@ -381,80 +370,6 @@ export async function fetchAdzunaIndiaJobs(
         source: "Adzuna · India",
         experience_level: /intern/i.test(j.title) ? "internship" : "junior",
         india_focus: true,
-      });
-    }
-  }
-  return out;
-}
-
-/**
- * Open-source starter issues (GitHub) — mapped as type "project"
- * so students can contribute / freelance-style OSS work.
- */
-export async function fetchGithubOpenSourceProjects(
-  catalog: string[]
-): Promise<NormalizedJob[]> {
-  const langMap: { q: string; skills: string[] }[] = [
-    { q: "language:JavaScript", skills: ["JavaScript", "React", "Node.js"] },
-    { q: "language:TypeScript", skills: ["TypeScript", "React"] },
-    { q: "language:Python", skills: ["Python", "Django", "AI / ML"] },
-    { q: "language:Java", skills: ["Java", "Spring Boot"] },
-    { q: "language:Kotlin", skills: ["Android", "Kotlin"] },
-    { q: "language:Swift", skills: ["Swift", "iOS"] },
-  ];
-
-  const out: NormalizedJob[] = [];
-  const seen = new Set<string>();
-
-  for (const entry of langMap) {
-    const q = encodeURIComponent(
-      `label:"good first issue" state:open ${entry.q}`
-    );
-    const res = await fetch(
-      `https://api.github.com/search/issues?q=${q}&per_page=8&sort=updated`,
-      { next: { revalidate: 0 }, headers: ghHeaders() }
-    );
-    if (!res.ok) continue;
-    const json = (await res.json()) as {
-      items?: Array<{
-        title: string;
-        html_url: string;
-        body?: string;
-        repository_url?: string;
-        user?: { login?: string };
-      }>;
-    };
-
-    for (const issue of json.items || []) {
-      if (!issue.html_url || seen.has(issue.html_url)) continue;
-      seen.add(issue.html_url);
-      const repoPath = (issue.repository_url || "")
-        .replace("https://api.github.com/repos/", "");
-      const company = repoPath.split("/")[0] || "Open Source";
-      const plain = stripHtml(issue.body || "").slice(0, 400);
-      const skills = matchSkills(
-        entry.skills,
-        catalog,
-        issue.title,
-        plain
-      ).filter((s) => catalog.includes(s));
-      if (skills.length === 0) continue;
-
-      out.push({
-        title: `[OSS] ${issue.title}`.slice(0, 120),
-        company: repoPath || company,
-        type: "project",
-        work_mode: "remote",
-        location: "Remote · Open Source",
-        skills,
-        stipend: "Volunteer / portfolio",
-        description:
-          plain ||
-          `Good first issue on ${repoPath}. Contribute, learn, and build your portfolio.`,
-        apply_url: issue.html_url,
-        source: "GitHub · Open Source",
-        experience_level: "internship",
-        india_focus: false,
       });
     }
   }

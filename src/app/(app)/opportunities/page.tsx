@@ -104,12 +104,8 @@ export default async function OpportunitiesPage({
         ) || (o.source || "").toLowerCase().includes("india")
     );
   }
-  if (params.region === "oss" || params.type === "project") {
-    list = list.filter((o) => isOpenSourceListing(o));
-  } else {
-    // Default feed = real jobs only (not GitHub good-first-issues)
-    list = list.filter((o) => !isOpenSourceListing(o));
-  }
+  // Never show GitHub issues / OSS as jobs — job portals only
+  list = list.filter((o) => !isOpenSourceListing(o));
   if (params.saved === "1") {
     list = list.filter((o) => savedIds.has(o.id));
   }
@@ -209,19 +205,6 @@ export default async function OpportunitiesPage({
             })}
           >
             🇮🇳 India
-          </Link>
-        </Button>
-        <Button
-          size="sm"
-          variant={params.region === "oss" ? "default" : "outline"}
-          asChild
-        >
-          <Link
-            href={href({
-              region: params.region === "oss" ? undefined : "oss",
-            })}
-          >
-            Open Source
           </Link>
         </Button>
         <Button

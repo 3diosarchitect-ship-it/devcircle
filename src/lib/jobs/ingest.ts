@@ -2,7 +2,6 @@ import { createServiceClient } from "@/lib/supabase/middleware";
 import {
   fetchAdzunaIndiaJobs,
   fetchArbeitnowJobs,
-  fetchGithubOpenSourceProjects,
   fetchRemoteOkJobs,
   fetchRemotiveIndiaJobs,
   fetchRemotiveJobs,
@@ -20,7 +19,6 @@ export type IngestResult = {
   sources: string[];
   errors: string[];
   india: number;
-  oss: number;
 };
 
 async function ensureJobsBot(
@@ -121,7 +119,6 @@ export async function ingestJobs(options?: {
       sources: [],
       errors: ["No skills in DB — run seed first"],
       india: 0,
-      oss: 0,
     };
   }
 
@@ -143,11 +140,6 @@ export async function ingestJobs(options?: {
   await run("Arbeitnow", () => fetchArbeitnowJobs(catalog));
   await run("RemoteOK", () => fetchRemoteOkJobs(catalog));
   await run("AdzunaIN", () => fetchAdzunaIndiaJobs(catalog));
-  // OSS is optional / lower volume — keep out of main "jobs" flood
-  await run("GitHubOSS", async () => {
-    const all = await fetchGithubOpenSourceProjects(catalog);
-    return all.slice(0, 12);
-  });
 
   if (includeRemotive) {
     await run("Remotive", () => fetchRemotiveJobs(catalog));
@@ -156,14 +148,11 @@ export async function ingestJobs(options?: {
 
   const jobs = dedupeJobs(batches);
   const india = jobs.filter((j) => j.india_focus).length;
-  const oss = jobs.filter((j) => j.source.includes("Open Source")).length;
 
-  // Prefer real jobs (India first); OSS last so they don't flood Apply buttons
+  // Prefer India / internship listings from job boards only
   const prioritized = [...jobs].sort((a, b) => {
     const score = (j: NormalizedJob) =>
-      (j.india_focus ? 3 : 0) +
-      (j.source.includes("Open Source") ? -5 : 2) +
-      (j.type === "internship" ? 1 : 0);
+      (j.india_focus ? 3 : 0) + (j.type === "internship" ? 1 : 0) + 1;
     return score(b) - score(a);
   });
 
@@ -256,11 +245,8 @@ export async function ingestJobs(options?: {
         { count: number; latestTitle: string }
       >();
 
-      // Community-wise: real jobs only into communities (skip OSS issues as "jobs")
+      // Community-wise: post into matching skill communities (cap 3 per job)
       for (const job of insertedJobs.slice(0, 40)) {
-        if (job.source.includes("Open Source") || job.title.startsWith("[OSS]")) {
-          continue;
-        }
         const targets: { id: string; name: string; slug: string }[] = [];
         for (const skill of job.skills) {
           for (const c of bySkill.get(skill) || []) {
@@ -271,11 +257,7 @@ export async function ingestJobs(options?: {
           const key = `${target.id}:${job.apply_url}`;
           if (postKeys.has(key)) continue;
           postKeys.add(key);
-          const badge = job.india_focus
-            ? "🇮🇳 India"
-            : job.source.includes("Open Source")
-              ? "🌱 Open Source"
-              : "💼 Job";
+          const badge = job.india_focus ? "🇮🇳 India" : "💼 Job";
           const headline = `${job.title} @ ${job.company}`;
           posts.push({
             author_id: botId,
@@ -358,6 +340,5 @@ export async function ingestJobs(options?: {
     sources,
     errors,
     india,
-    oss,
   };
 }
