@@ -17,11 +17,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || "/dashboard";
+  const authError = searchParams.get("error");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -55,11 +57,25 @@ export function LoginForm() {
           Welcome back
         </CardTitle>
         <CardDescription>
-          Sign in to continue building with your dev community
+          Sign in with Google, GitHub, or email
         </CardDescription>
+        {authError ? (
+          <p className="text-sm text-destructive">
+            Auth failed — try again or use another method.
+          </p>
+        ) : null}
       </CardHeader>
-      <form onSubmit={handleSubmit}>
-        <CardContent className="space-y-4">
+      <CardContent className="space-y-4">
+        <OAuthButtons next={next.startsWith("/") ? next : "/dashboard"} />
+        <div className="relative py-1">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-card px-2 text-muted-foreground">or email</span>
+          </div>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -87,8 +103,6 @@ export function LoginForm() {
               disabled={loading}
             />
           </div>
-        </CardContent>
-        <CardFooter className="flex flex-col gap-4">
           <Button
             type="submit"
             className="h-10 w-full text-base"
@@ -103,17 +117,19 @@ export function LoginForm() {
               "Sign in"
             )}
           </Button>
-          <p className="text-center text-sm text-muted-foreground">
-            New here?{" "}
-            <Link
-              href="/register"
-              className="font-medium text-primary hover:underline"
-            >
-              Create an account
-            </Link>
-          </p>
-        </CardFooter>
-      </form>
+        </form>
+      </CardContent>
+      <CardFooter className="flex flex-col gap-4">
+        <p className="text-center text-sm text-muted-foreground">
+          New here?{" "}
+          <Link
+            href="/register"
+            className="font-medium text-primary hover:underline"
+          >
+            Create an account
+          </Link>
+        </p>
+      </CardFooter>
     </Card>
   );
 }

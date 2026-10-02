@@ -1,4 +1,5 @@
 import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/shared/page-header";
 import { MemberCard } from "@/components/communities/member-card";
@@ -9,6 +10,7 @@ import { JoinCommunityButton } from "@/components/communities/join-button";
 import { OpportunityListWithSave } from "@/components/opportunities/opportunity-list-with-save";
 import { SkillChip } from "@/components/shared/skill-chip";
 import { EmptyState } from "@/components/shared/empty-state";
+import { Button } from "@/components/ui/button";
 import { calculateMatchScore } from "@/lib/matching";
 import type { LookingFor, Opportunity, PostType, Profile } from "@/types";
 
@@ -85,7 +87,7 @@ export default async function CommunityDetailPage({
     skillsByProfile.set(row.profile_id, arr);
   }
 
-  // Recent opportunities related to community skill
+  // Community-wise opportunities (skill match) — prefer real jobs
   let relatedOpps: Opportunity[] = [];
   if (skillName) {
     const { data: opps } = await supabase
@@ -94,7 +96,7 @@ export default async function CommunityDetailPage({
       .eq("is_demo", false)
       .contains("skills", [skillName])
       .order("created_at", { ascending: false })
-      .limit(3);
+      .limit(8);
     relatedOpps = (opps || []) as Opportunity[];
     if (!relatedOpps.length) {
       const { data: demoOpps } = await supabase
@@ -102,7 +104,7 @@ export default async function CommunityDetailPage({
         .select("*")
         .contains("skills", [skillName])
         .order("created_at", { ascending: false })
-        .limit(3);
+        .limit(8);
       relatedOpps = (demoOpps || []) as Opportunity[];
     }
   }
@@ -211,9 +213,18 @@ export default async function CommunityDetailPage({
 
           {relatedOpps.length > 0 && (
             <div>
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Recent opportunities
-              </h2>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  Jobs for this community
+                </h2>
+                <Button variant="ghost" size="sm" asChild>
+                  <Link
+                    href={`/opportunities?community=${community.slug}`}
+                  >
+                    View all
+                  </Link>
+                </Button>
+              </div>
               <div className="space-y-3">
                 <OpportunityListWithSave
                   items={relatedOpps.map((opp) => {

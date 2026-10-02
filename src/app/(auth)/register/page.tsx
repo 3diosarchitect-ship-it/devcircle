@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
 import { toast } from "sonner";
 
 export default function RegisterPage() {
@@ -57,9 +58,23 @@ export default function RegisterPage() {
     <div className="glass-card p-6 sm:p-8">
       <h1 className="text-xl font-semibold">Join as a Developer</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Create your profile, join communities, and start building.
+        Sign up with Google or GitHub — we prefill your profile.
       </p>
-      <form onSubmit={onSubmit} className="mt-6 space-y-4">
+
+      <div className="mt-6">
+        <OAuthButtons next="/onboarding" mode="signup" />
+      </div>
+
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t border-border" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-card px-2 text-muted-foreground">or email</span>
+        </div>
+      </div>
+
+      <form onSubmit={onSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="name">Full name</Label>
           <Input

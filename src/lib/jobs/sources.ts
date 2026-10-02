@@ -12,10 +12,15 @@ export type NormalizedJob = {
   apply_url: string;
   source: string;
   experience_level: string;
+  /** Prefer matching into India-focused community feeds */
+  india_focus?: boolean;
 };
 
 const TECH_HINT =
-  /react|node|python|django|java|typescript|javascript|swift|kotlin|flutter|android|ios|devops|aws|cloud|mongo|mern|sql|backend|frontend|full.?stack|software|engineer|developer|ml|machine learning|ai|data|ux|ui|design|security|golang|rust|c\+\+|mobile|web/i;
+  /react|node|python|django|java|typescript|javascript|swift|kotlin|flutter|android|ios|devops|aws|cloud|mongo|mern|sql|backend|frontend|full.?stack|software|engineer|developer|ml|machine learning|ai|data|ux|ui|design|security|golang|rust|c\+\+|mobile|web|internship|freelance/i;
+
+const INDIA_HINT =
+  /\b(india|indian|bangalore|bengaluru|mumbai|delhi|noida|gurgaon|gurugram|hyderabad|chennai|pune|kolkata|ahmedabad|jaipur|indore|remote.?india|india.?remote)\b/i;
 
 export function stripHtml(html: string): string {
   return html
@@ -30,10 +35,15 @@ export function stripHtml(html: string): string {
     .trim();
 }
 
+export function isIndiaLocation(...parts: (string | null | undefined)[]): boolean {
+  return INDIA_HINT.test(parts.filter(Boolean).join(" "));
+}
+
 export function mapJobType(raw: string | string[] | null | undefined): OpportunityType {
   const s = (Array.isArray(raw) ? raw.join(" ") : raw || "").toLowerCase();
   if (/intern/.test(s)) return "internship";
-  if (/freelance|contract|part.?time/.test(s)) return "freelance";
+  if (/freelance|contract|part.?time|gig/.test(s)) return "freelance";
+  if (/open.?source|contribute|good first/.test(s)) return "project";
   if (/full.?time|permanent/.test(s)) return "full_time";
   return "full_time";
 }
@@ -57,7 +67,6 @@ export function matchSkills(
       found.push(skill);
     }
   }
-  // Common aliases
   const aliases: Record<string, string> = {
     reactjs: "React",
     "react.js": "React",
@@ -74,8 +83,11 @@ export function matchSkills(
     swift: "Swift",
     devops: "DevOps",
     aws: "Cloud",
+    gcp: "Cloud",
+    azure: "Cloud",
     kubernetes: "AI / ML",
     "machine learning": "AI / ML",
+    kotlin: "Android",
   };
   for (const [alias, skill] of Object.entries(aliases)) {
     if (hay.includes(alias) && catalog.includes(skill) && !found.includes(skill)) {
@@ -86,8 +98,18 @@ export function matchSkills(
 }
 
 function isTechJob(title: string, tags: string[]): boolean {
-  const blob = `${title} ${tags.join(" ")}`;
-  return TECH_HINT.test(blob);
+  return TECH_HINT.test(`${title} ${tags.join(" ")}`);
+}
+
+function ghHeaders(): HeadersInit {
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github+json",
+    "User-Agent": "DevCircleJobsBot/1.0",
+  };
+  if (process.env.GITHUB_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  }
+  return headers;
 }
 
 export async function fetchArbeitnowJobs(
@@ -114,11 +136,11 @@ export async function fetchArbeitnowJobs(
   const out: NormalizedJob[] = [];
   for (const j of json.data || []) {
     if (!j.url || !j.title) continue;
-    if (!j.remote && !isTechJob(j.title, j.tags || [])) continue;
     if (!isTechJob(j.title, j.tags || [])) continue;
     const plain = stripHtml(j.description || "").slice(0, 600);
     const skills = matchSkills(j.tags || [], catalog, j.title, plain);
     if (skills.length === 0) continue;
+    const india = isIndiaLocation(j.location, j.title, plain);
     out.push({
       title: j.title.trim(),
       company: (j.company_name || "Company").trim(),
@@ -129,8 +151,9 @@ export async function fetchArbeitnowJobs(
       stipend: null,
       description: plain || `${j.title} at ${j.company_name}`,
       apply_url: j.url.trim(),
-      source: "Arbeitnow",
+      source: india ? "Arbeitnow · India" : "Arbeitnow",
       experience_level: /intern/i.test(j.title) ? "internship" : "junior",
+      india_focus: india,
     });
   }
   return out;
@@ -160,18 +183,21 @@ export async function fetchRemoteOkJobs(
     const plain = stripHtml(String(row.description || "")).slice(0, 600);
     const skills = matchSkills(tags, catalog, title, plain);
     if (skills.length === 0) continue;
+    const location = String(row.location || "Remote");
+    const india = isIndiaLocation(location, title, tags.join(" "), plain);
     out.push({
       title,
       company: String(row.company || "Company").trim(),
       type: mapJobType(tags.join(" ")),
       work_mode: "remote",
-      location: String(row.location || "Remote"),
+      location,
       skills,
       stipend: row.salary ? String(row.salary) : null,
       description: plain || `${title} at ${row.company}`,
       apply_url: url,
-      source: "Remote OK",
+      source: india ? "Remote OK · India" : "Remote OK",
       experience_level: /intern/i.test(title) ? "internship" : "junior",
+      india_focus: india,
     });
   }
   return out;
@@ -182,7 +208,7 @@ export async function fetchRemotiveJobs(
   catalog: string[]
 ): Promise<NormalizedJob[]> {
   const res = await fetch(
-    "https://remotive.com/api/remote-jobs?category=software-dev&limit=40",
+    "https://remotive.com/api/remote-jobs?category=software-dev&limit=50",
     {
       next: { revalidate: 0 },
       headers: { Accept: "application/json", "User-Agent": "DevCircleJobsBot/1.0" },
@@ -208,19 +234,229 @@ export async function fetchRemotiveJobs(
     const plain = stripHtml(j.description || "").slice(0, 600);
     const skills = matchSkills(j.tags || [], catalog, j.title, plain);
     if (skills.length === 0) continue;
+    const loc = j.candidate_required_location || "Remote";
+    const india = isIndiaLocation(loc, j.title, plain);
     out.push({
       title: j.title.trim(),
       company: (j.company_name || "Company").trim(),
       type: mapJobType(j.job_type),
       work_mode: "remote",
-      location: j.candidate_required_location || "Remote",
+      location: loc,
       skills,
       stipend: j.salary || null,
       description: plain || `${j.title} at ${j.company_name}`,
       apply_url: j.url.trim(),
-      source: "Remotive",
+      source: india ? "Remotive · India" : "Remotive",
       experience_level: /intern/i.test(j.title) ? "internship" : "junior",
+      india_focus: india,
     });
+  }
+  return out;
+}
+
+/**
+ * India-friendly Remotive search (internships / India remote).
+ * Counts toward Remotive rate limit — only call with includeRemotive.
+ */
+export async function fetchRemotiveIndiaJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const queries = ["india", "internship india", "bangalore"];
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const q of queries) {
+    const res = await fetch(
+      `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(q)}&limit=20`,
+      {
+        next: { revalidate: 0 },
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "DevCircleJobsBot/1.0",
+        },
+      }
+    );
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      jobs?: Array<{
+        title: string;
+        company_name: string;
+        url: string;
+        tags?: string[];
+        job_type?: string;
+        salary?: string;
+        description?: string;
+        candidate_required_location?: string;
+        category?: string;
+      }>;
+    };
+    for (const j of json.jobs || []) {
+      if (!j.url || !j.title || seen.has(j.url)) continue;
+      seen.add(j.url);
+      const plain = stripHtml(j.description || "").slice(0, 600);
+      const skills = matchSkills(j.tags || [], catalog, j.title, plain);
+      if (skills.length === 0 && !isTechJob(j.title, j.tags || [])) continue;
+      const loc = j.candidate_required_location || "India / Remote";
+      out.push({
+        title: j.title.trim(),
+        company: (j.company_name || "Company").trim(),
+        type: mapJobType(j.job_type || j.title),
+        work_mode: "remote",
+        location: loc,
+        skills: skills.length ? skills : matchSkills(["JavaScript"], catalog, j.title, plain),
+        stipend: j.salary || null,
+        description: plain || `${j.title} at ${j.company_name}`,
+        apply_url: j.url.trim(),
+        source: "Remotive · India",
+        experience_level: /intern/i.test(j.title) ? "internship" : "junior",
+        india_focus: true,
+      });
+    }
+  }
+  return out.filter((j) => j.skills.length > 0);
+}
+
+/** Optional Adzuna India API (free tier) — set ADZUNA_APP_ID + ADZUNA_APP_KEY */
+export async function fetchAdzunaIndiaJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const appId = process.env.ADZUNA_APP_ID;
+  const appKey = process.env.ADZUNA_APP_KEY;
+  if (!appId || !appKey) return [];
+
+  const queries = [
+    "software developer internship",
+    "react developer",
+    "python developer freelance",
+    "full stack developer",
+  ];
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const what of queries) {
+    const url =
+      `https://api.adzuna.com/v1/api/jobs/in/search/1?app_id=${encodeURIComponent(appId)}` +
+      `&app_key=${encodeURIComponent(appKey)}` +
+      `&results_per_page=15&what=${encodeURIComponent(what)}&content-type=application/json`;
+    const res = await fetch(url, {
+      next: { revalidate: 0 },
+      headers: { "User-Agent": "DevCircleJobsBot/1.0" },
+    });
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      results?: Array<{
+        title?: string;
+        company?: { display_name?: string };
+        description?: string;
+        redirect_url?: string;
+        location?: { display_name?: string };
+        contract_type?: string;
+        salary_min?: number;
+        salary_max?: number;
+      }>;
+    };
+    for (const j of json.results || []) {
+      const apply = (j.redirect_url || "").trim();
+      if (!apply || !j.title || seen.has(apply)) continue;
+      seen.add(apply);
+      const plain = stripHtml(j.description || "").slice(0, 600);
+      const skills = matchSkills([], catalog, j.title, plain);
+      if (skills.length === 0) continue;
+      const stipend =
+        j.salary_min || j.salary_max
+          ? `₹${j.salary_min || "?"}–${j.salary_max || "?"}`
+          : null;
+      out.push({
+        title: j.title.trim(),
+        company: (j.company?.display_name || "Company").trim(),
+        type: mapJobType(j.contract_type || j.title),
+        work_mode: /remote/i.test(plain + (j.location?.display_name || ""))
+          ? "remote"
+          : "hybrid",
+        location: j.location?.display_name || "India",
+        skills,
+        stipend,
+        description: plain || j.title,
+        apply_url: apply,
+        source: "Adzuna · India",
+        experience_level: /intern/i.test(j.title) ? "internship" : "junior",
+        india_focus: true,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Open-source starter issues (GitHub) — mapped as type "project"
+ * so students can contribute / freelance-style OSS work.
+ */
+export async function fetchGithubOpenSourceProjects(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const langMap: { q: string; skills: string[] }[] = [
+    { q: "language:JavaScript", skills: ["JavaScript", "React", "Node.js"] },
+    { q: "language:TypeScript", skills: ["TypeScript", "React"] },
+    { q: "language:Python", skills: ["Python", "Django", "AI / ML"] },
+    { q: "language:Java", skills: ["Java", "Spring Boot"] },
+    { q: "language:Kotlin", skills: ["Android", "Kotlin"] },
+    { q: "language:Swift", skills: ["Swift", "iOS"] },
+  ];
+
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const entry of langMap) {
+    const q = encodeURIComponent(
+      `label:"good first issue" state:open ${entry.q}`
+    );
+    const res = await fetch(
+      `https://api.github.com/search/issues?q=${q}&per_page=8&sort=updated`,
+      { next: { revalidate: 0 }, headers: ghHeaders() }
+    );
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      items?: Array<{
+        title: string;
+        html_url: string;
+        body?: string;
+        repository_url?: string;
+        user?: { login?: string };
+      }>;
+    };
+
+    for (const issue of json.items || []) {
+      if (!issue.html_url || seen.has(issue.html_url)) continue;
+      seen.add(issue.html_url);
+      const repoPath = (issue.repository_url || "")
+        .replace("https://api.github.com/repos/", "");
+      const company = repoPath.split("/")[0] || "Open Source";
+      const plain = stripHtml(issue.body || "").slice(0, 400);
+      const skills = matchSkills(
+        entry.skills,
+        catalog,
+        issue.title,
+        plain
+      ).filter((s) => catalog.includes(s));
+      if (skills.length === 0) continue;
+
+      out.push({
+        title: `[OSS] ${issue.title}`.slice(0, 120),
+        company: repoPath || company,
+        type: "project",
+        work_mode: "remote",
+        location: "Remote · Open Source",
+        skills,
+        stipend: "Volunteer / portfolio",
+        description:
+          plain ||
+          `Good first issue on ${repoPath}. Contribute, learn, and build your portfolio.`,
+        apply_url: issue.html_url,
+        source: "GitHub · Open Source",
+        experience_level: "internship",
+        india_focus: false,
+      });
+    }
   }
   return out;
 }

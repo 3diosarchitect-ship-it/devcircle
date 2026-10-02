@@ -1,7 +1,10 @@
 import { createServiceClient } from "@/lib/supabase/middleware";
 import {
+  fetchAdzunaIndiaJobs,
   fetchArbeitnowJobs,
+  fetchGithubOpenSourceProjects,
   fetchRemoteOkJobs,
+  fetchRemotiveIndiaJobs,
   fetchRemotiveJobs,
   type NormalizedJob,
 } from "@/lib/jobs/sources";
@@ -16,6 +19,8 @@ export type IngestResult = {
   skipped: number;
   sources: string[];
   errors: string[];
+  india: number;
+  oss: number;
 };
 
 async function ensureJobsBot(
@@ -38,7 +43,6 @@ async function ensureJobsBot(
     },
   });
   if (error || !created.user) {
-    // Race: profile may exist under another username from trigger
     const { data: byEmail } = await supabase
       .from("profiles")
       .select("id")
@@ -50,7 +54,7 @@ async function ensureJobsBot(
         .update({
           username: BOT_USERNAME,
           full_name: "DevCircle Jobs Bot",
-          headline: "Auto-posts real jobs from public boards",
+          headline: "Auto-posts real jobs & OSS into matching communities",
           onboarding_complete: true,
           is_demo: false,
         })
@@ -65,8 +69,9 @@ async function ensureJobsBot(
     .update({
       username: BOT_USERNAME,
       full_name: "DevCircle Jobs Bot",
-      headline: "Auto-posts real jobs from public boards (Arbeitnow, Remote OK, Remotive)",
-      bio: "I fetch publicly available tech jobs every hour and share matching roles in your communities. Tap the link to apply on the original board — not LinkedIn scrape.",
+      headline:
+        "Auto-posts jobs, India roles, internships & open-source issues into skill communities",
+      bio: "Fetches from Arbeitnow, Remote OK, Remotive, optional Adzuna India, and GitHub good-first-issues. Posts only into communities whose skill matches the listing.",
       onboarding_complete: true,
       is_demo: false,
       role: "student",
@@ -79,7 +84,11 @@ async function ensureJobsBot(
 function dedupeJobs(jobs: NormalizedJob[]): NormalizedJob[] {
   const seen = new Set<string>();
   const out: NormalizedJob[] = [];
-  for (const j of jobs) {
+  // Prefer India-focused listings when URLs collide
+  const sorted = [...jobs].sort(
+    (a, b) => Number(b.india_focus) - Number(a.india_focus)
+  );
+  for (const j of sorted) {
     const key = j.apply_url.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -94,7 +103,7 @@ export async function ingestJobs(options?: {
   postToCommunities?: boolean;
 }): Promise<IngestResult> {
   const includeRemotive = options?.includeRemotive ?? true;
-  const maxInsert = options?.maxInsert ?? 40;
+  const maxInsert = options?.maxInsert ?? 50;
   const postToCommunities = options?.postToCommunities ?? true;
 
   const supabase = createServiceClient();
@@ -111,39 +120,48 @@ export async function ingestJobs(options?: {
       skipped: 0,
       sources: [],
       errors: ["No skills in DB — run seed first"],
+      india: 0,
+      oss: 0,
     };
   }
 
   const batches: NormalizedJob[] = [];
-  try {
-    const jobs = await fetchArbeitnowJobs(catalog);
-    batches.push(...jobs);
-    sources.push(`Arbeitnow:${jobs.length}`);
-  } catch (e) {
-    errors.push(`Arbeitnow: ${e instanceof Error ? e.message : String(e)}`);
-  }
 
-  try {
-    const jobs = await fetchRemoteOkJobs(catalog);
-    batches.push(...jobs);
-    sources.push(`RemoteOK:${jobs.length}`);
-  } catch (e) {
-    errors.push(`RemoteOK: ${e instanceof Error ? e.message : String(e)}`);
-  }
-
-  if (includeRemotive) {
+  async function run(
+    label: string,
+    fn: () => Promise<NormalizedJob[]>
+  ): Promise<void> {
     try {
-      const jobs = await fetchRemotiveJobs(catalog);
+      const jobs = await fn();
       batches.push(...jobs);
-      sources.push(`Remotive:${jobs.length}`);
+      sources.push(`${label}:${jobs.length}`);
     } catch (e) {
-      errors.push(`Remotive: ${e instanceof Error ? e.message : String(e)}`);
+      errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
-  const jobs = dedupeJobs(batches);
-  const urls = jobs.map((j) => j.apply_url);
+  await run("Arbeitnow", () => fetchArbeitnowJobs(catalog));
+  await run("RemoteOK", () => fetchRemoteOkJobs(catalog));
+  await run("GitHubOSS", () => fetchGithubOpenSourceProjects(catalog));
+  await run("AdzunaIN", () => fetchAdzunaIndiaJobs(catalog));
 
+  if (includeRemotive) {
+    await run("Remotive", () => fetchRemotiveJobs(catalog));
+    await run("RemotiveIN", () => fetchRemotiveIndiaJobs(catalog));
+  }
+
+  const jobs = dedupeJobs(batches);
+  const india = jobs.filter((j) => j.india_focus).length;
+  const oss = jobs.filter((j) => j.source.includes("Open Source")).length;
+
+  // Prefer inserting India + OSS first so community feeds fill with relevant items
+  const prioritized = [...jobs].sort((a, b) => {
+    const score = (j: NormalizedJob) =>
+      (j.india_focus ? 2 : 0) + (j.source.includes("Open Source") ? 1 : 0);
+    return score(b) - score(a);
+  });
+
+  const urls = prioritized.map((j) => j.apply_url);
   const { data: existing } = urls.length
     ? await supabase.from("opportunities").select("apply_url").in("apply_url", urls)
     : { data: [] as { apply_url: string }[] };
@@ -152,7 +170,7 @@ export async function ingestJobs(options?: {
     (existing || []).map((r) => (r.apply_url || "").toLowerCase())
   );
 
-  const fresh = jobs
+  const fresh = prioritized
     .filter((j) => !existingUrls.has(j.apply_url.toLowerCase()))
     .slice(0, maxInsert);
 
@@ -217,42 +235,54 @@ export async function ingestJobs(options?: {
         link_url: string;
         is_demo: boolean;
       }[] = [];
+      const postKeys = new Set<string>();
 
-      // Avoid flooding: at most one community post per job (best skill match)
-      for (const job of insertedJobs.slice(0, 25)) {
-        let target: { id: string; name: string } | null = null;
+      // Community-wise: post into EVERY skill-matched community (cap 3 per job)
+      for (const job of insertedJobs.slice(0, 40)) {
+        const targets: { id: string; name: string }[] = [];
         for (const skill of job.skills) {
-          const list = bySkill.get(skill);
-          if (list?.length) {
-            target = list[0];
-            break;
+          for (const c of bySkill.get(skill) || []) {
+            if (!targets.some((t) => t.id === c.id)) targets.push(c);
           }
         }
-        if (!target) continue;
-        posts.push({
-          author_id: botId,
-          community_id: target.id,
-          type: "opportunity",
-          content: [
-            `🆕 ${job.title} @ ${job.company}`,
-            job.location ? `📍 ${job.location}` : null,
-            job.skills.length ? `Skills: ${job.skills.join(", ")}` : null,
-            "",
-            job.description.slice(0, 280),
-            "",
-            `Source: ${job.source} · auto-shared by DevCircle Jobs Bot`,
-          ]
-            .filter((line) => line !== null)
-            .join("\n"),
-          link_url: job.apply_url,
-          is_demo: false,
-        });
+        for (const target of targets.slice(0, 3)) {
+          const key = `${target.id}:${job.apply_url}`;
+          if (postKeys.has(key)) continue;
+          postKeys.add(key);
+          const badge = job.india_focus
+            ? "🇮🇳 India"
+            : job.source.includes("Open Source")
+              ? "🌱 Open Source"
+              : "💼 Job";
+          posts.push({
+            author_id: botId,
+            community_id: target.id,
+            type: "opportunity",
+            content: [
+              `${badge} ${job.title} @ ${job.company}`,
+              job.location ? `📍 ${job.location}` : null,
+              job.skills.length ? `Skills: ${job.skills.join(", ")}` : null,
+              "",
+              job.description.slice(0, 260),
+              "",
+              `Matched to ${target.name} · Source: ${job.source}`,
+            ]
+              .filter((line) => line !== null)
+              .join("\n"),
+            link_url: job.apply_url,
+            is_demo: false,
+          });
+        }
       }
 
       if (posts.length) {
-        const { error: postErr } = await supabase.from("posts").insert(posts);
-        if (postErr) errors.push(`posts: ${postErr.message}`);
-        else posted = posts.length;
+        // Insert in chunks to avoid payload limits
+        for (let i = 0; i < posts.length; i += 40) {
+          const chunk = posts.slice(i, i + 40);
+          const { error: postErr } = await supabase.from("posts").insert(chunk);
+          if (postErr) errors.push(`posts: ${postErr.message}`);
+          else posted += chunk.length;
+        }
       }
     } catch (e) {
       errors.push(`bot/posts: ${e instanceof Error ? e.message : String(e)}`);
@@ -266,5 +296,7 @@ export async function ingestJobs(options?: {
     skipped: jobs.length - fresh.length,
     sources,
     errors,
+    india,
+    oss,
   };
 }

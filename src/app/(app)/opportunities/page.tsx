@@ -17,6 +17,8 @@ export default async function OpportunitiesPage({
     mode?: string;
     skill?: string;
     saved?: string;
+    region?: string;
+    community?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -41,6 +43,22 @@ export default async function OpportunitiesPage({
     skillRows?.map((r) => (r.skill as unknown as { name: string })?.name).filter(Boolean) ||
     [];
 
+  // Community-wise: resolve community slug → skill name
+  let communitySkill = params.skill || "";
+  let communityLabel = "";
+  if (params.community) {
+    const { data: community } = await supabase
+      .from("communities")
+      .select("name, skill:skills(name)")
+      .eq("slug", params.community)
+      .maybeSingle();
+    const sn = (community?.skill as unknown as { name?: string } | null)?.name;
+    if (sn) {
+      communitySkill = sn;
+      communityLabel = community?.name || sn;
+    }
+  }
+
   let query = supabase
     .from("opportunities")
     .select("*")
@@ -52,7 +70,6 @@ export default async function OpportunitiesPage({
 
   let { data: opportunities } = await query;
 
-  // Fallback to demo only if bot has not ingested real jobs yet
   if (!opportunities?.length) {
     let demoQuery = supabase
       .from("opportunities")
@@ -71,10 +88,26 @@ export default async function OpportunitiesPage({
   const savedIds = new Set((saved || []).map((s) => s.opportunity_id));
 
   let list = (opportunities || []) as Opportunity[];
-  if (params.skill) {
-    const s = params.skill.toLowerCase();
+  if (communitySkill) {
+    const s = communitySkill.toLowerCase();
     list = list.filter((o) =>
       (o.skills || []).some((sk) => sk.toLowerCase().includes(s))
+    );
+  }
+  if (params.region === "india") {
+    list = list.filter(
+      (o) =>
+        /india|bangalore|bengaluru|mumbai|delhi|hyderabad|chennai|pune|noida|gurgaon|indore/i.test(
+          `${o.location || ""} ${o.source || ""} ${o.title}`
+        ) || (o.source || "").toLowerCase().includes("india")
+    );
+  }
+  if (params.region === "oss") {
+    list = list.filter(
+      (o) =>
+        o.type === "project" ||
+        (o.source || "").toLowerCase().includes("open source") ||
+        (o.title || "").startsWith("[OSS]")
     );
   }
   if (params.saved === "1") {
@@ -123,7 +156,11 @@ export default async function OpportunitiesPage({
     <div>
       <PageHeader
         title="Opportunities"
-        description="Internships, freelance, projects, and roles matched to your skills. Demo listings are clearly labelled."
+        description={
+          communityLabel
+            ? `Filtered for ${communityLabel} — jobs & OSS matching this community’s skill.`
+            : "Internships, freelance, India roles, and open-source projects matched to your skills."
+        }
       />
 
       <div className="mb-6 flex flex-wrap gap-2">
@@ -148,6 +185,32 @@ export default async function OpportunitiesPage({
             <Link href={href({ mode: m.value || undefined })}>{m.label}</Link>
           </Button>
         ))}
+        <Button
+          size="sm"
+          variant={params.region === "india" ? "default" : "outline"}
+          asChild
+        >
+          <Link
+            href={href({
+              region: params.region === "india" ? undefined : "india",
+            })}
+          >
+            🇮🇳 India
+          </Link>
+        </Button>
+        <Button
+          size="sm"
+          variant={params.region === "oss" ? "default" : "outline"}
+          asChild
+        >
+          <Link
+            href={href({
+              region: params.region === "oss" ? undefined : "oss",
+            })}
+          >
+            Open Source
+          </Link>
+        </Button>
         <Button
           size="sm"
           variant={params.saved === "1" ? "default" : "outline"}
