@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
+import { oauthLoginEnabled } from "@/lib/auth/config";
 import { OAuthButtons } from "@/components/auth/oauth-buttons";
 
 export function LoginForm() {
@@ -57,7 +58,9 @@ export function LoginForm() {
           Welcome back
         </CardTitle>
         <CardDescription>
-          Sign in with Google, GitHub, or email
+          {oauthLoginEnabled
+            ? "Sign in with Google, GitHub, or email"
+            : "Sign in with your email"}
         </CardDescription>
         {authError ? (
           <p className="text-sm text-destructive">
@@ -66,15 +69,21 @@ export function LoginForm() {
         ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
-        <OAuthButtons next={next.startsWith("/") ? next : "/dashboard"} />
-        <div className="relative py-1">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t border-border" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-card px-2 text-muted-foreground">or email</span>
-          </div>
-        </div>
+        {oauthLoginEnabled ? (
+          <>
+            <OAuthButtons next={next.startsWith("/") ? next : "/dashboard"} />
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">
+                  or email
+                </span>
+              </div>
+            </div>
+          </>
+        ) : null}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
