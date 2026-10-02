@@ -375,3 +375,226 @@ export async function fetchAdzunaIndiaJobs(
   }
   return out;
 }
+
+/** The Muse public jobs API (no key) — software + internships. */
+export async function fetchTheMuseJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const queries = [
+    "category=Software%20Engineering",
+    "category=Software%20Engineering&level=Internship",
+    "category=Data%20Science",
+    "category=Design%20and%20UX",
+  ];
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const q of queries) {
+    const res = await fetch(
+      `https://www.themuse.com/api/public/jobs?${q}&page=0`,
+      {
+        next: { revalidate: 0 },
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "DevCircleJobsBot/1.0",
+        },
+      }
+    );
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      results?: Array<{
+        name?: string;
+        company?: { name?: string };
+        locations?: Array<{ name?: string }>;
+        levels?: Array<{ name?: string; short_name?: string }>;
+        refs?: { landing_page?: string };
+        contents?: string;
+        categories?: Array<{ name?: string }>;
+      }>;
+    };
+
+    for (const j of json.results || []) {
+      const apply = (j.refs?.landing_page || "").trim();
+      if (!apply || !j.name || seen.has(apply)) continue;
+      seen.add(apply);
+      const loc = (j.locations || []).map((l) => l.name).filter(Boolean).join(", ");
+      const levels = (j.levels || []).map((l) => l.name || l.short_name || "").join(" ");
+      const cats = (j.categories || []).map((c) => c.name || "");
+      const plain = stripHtml(j.contents || "").slice(0, 600);
+      if (!isTechJob(j.name, [...cats, ...levels])) continue;
+      const skills = matchSkills(cats, catalog, j.name, plain);
+      if (skills.length === 0) continue;
+      const india = isIndiaLocation(loc, j.name, plain);
+      out.push({
+        title: j.name.trim(),
+        company: (j.company?.name || "Company").trim(),
+        type: mapJobType(levels || j.name),
+        work_mode: /remote/i.test(loc) ? "remote" : "hybrid",
+        location: loc || "See listing",
+        skills,
+        stipend: null,
+        description: plain || j.name,
+        apply_url: apply,
+        source: india ? "The Muse · India" : "The Muse",
+        experience_level: /intern/i.test(levels + j.name) ? "internship" : "junior",
+        india_focus: india,
+      });
+    }
+  }
+  return out;
+}
+
+/** Jobicy remote jobs API (no key). */
+export async function fetchJobicyJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const tags = ["javascript", "python", "react", "java", "typescript", "devops"];
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const tag of tags) {
+    const res = await fetch(
+      `https://jobicy.com/api/v2/remote-jobs?count=20&tag=${encodeURIComponent(tag)}`,
+      {
+        next: { revalidate: 0 },
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "DevCircleJobsBot/1.0",
+        },
+      }
+    );
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      jobs?: Array<{
+        url?: string;
+        jobTitle?: string;
+        companyName?: string;
+        jobIndustry?: string[];
+        jobType?: string[];
+        jobGeo?: string;
+        jobLevel?: string;
+        jobExcerpt?: string;
+        jobDescription?: string;
+      }>;
+    };
+
+    for (const j of json.jobs || []) {
+      const apply = (j.url || "").trim();
+      if (!apply || !j.jobTitle || seen.has(apply)) continue;
+      seen.add(apply);
+      const tagsArr = [
+        ...(j.jobIndustry || []),
+        ...(j.jobType || []),
+        tag,
+        j.jobLevel || "",
+      ];
+      const plain = stripHtml(j.jobDescription || j.jobExcerpt || "").slice(0, 600);
+      if (!isTechJob(j.jobTitle, tagsArr)) continue;
+      const skills = matchSkills(tagsArr, catalog, j.jobTitle, plain);
+      if (skills.length === 0) continue;
+      const loc = j.jobGeo || "Remote";
+      const india = isIndiaLocation(loc, j.jobTitle, plain);
+      out.push({
+        title: j.jobTitle.trim(),
+        company: (j.companyName || "Company").trim(),
+        type: mapJobType(j.jobType || j.jobTitle),
+        work_mode: "remote",
+        location: loc,
+        skills,
+        stipend: null,
+        description: plain || j.jobTitle,
+        apply_url: apply,
+        source: india ? "Jobicy · India" : "Jobicy",
+        experience_level: /intern|entry/i.test(
+          `${j.jobLevel || ""} ${j.jobTitle}`
+        )
+          ? "internship"
+          : "junior",
+        india_focus: india,
+      });
+    }
+  }
+  return out;
+}
+
+/** Himalayas remote jobs API (no key) — global + India search. */
+export async function fetchHimalayasJobs(
+  catalog: string[]
+): Promise<NormalizedJob[]> {
+  const endpoints = [
+    "https://himalayas.app/jobs/api?limit=40",
+    "https://himalayas.app/jobs/api/search?q=software+engineer&limit=30",
+    "https://himalayas.app/jobs/api/search?q=react&country=IN&limit=25",
+    "https://himalayas.app/jobs/api/search?q=python+developer&country=IN&limit=25",
+    "https://himalayas.app/jobs/api/search?q=internship&employment_type=Intern&limit=20",
+  ];
+  const out: NormalizedJob[] = [];
+  const seen = new Set<string>();
+
+  for (const endpoint of endpoints) {
+    const res = await fetch(endpoint, {
+      next: { revalidate: 0 },
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "DevCircleJobsBot/1.0",
+      },
+    });
+    if (!res.ok) continue;
+    const json = (await res.json()) as {
+      jobs?: Array<{
+        title?: string;
+        excerpt?: string;
+        companyName?: string;
+        employmentType?: string;
+        seniority?: string[];
+        categories?: string[];
+        description?: string;
+        applicationLink?: string;
+        guid?: string;
+        locationRestrictions?: string[];
+        minSalary?: number;
+        maxSalary?: number;
+        currency?: string;
+        salaryPeriod?: string;
+      }>;
+    };
+
+    for (const j of json.jobs || []) {
+      const apply = (j.applicationLink || j.guid || "").trim();
+      if (!apply.startsWith("http") || !j.title || seen.has(apply)) continue;
+      seen.add(apply);
+      const cats = j.categories || [];
+      const plain = stripHtml(j.description || j.excerpt || "").slice(0, 600);
+      if (!isTechJob(j.title, cats)) continue;
+      const skills = matchSkills(cats, catalog, j.title, plain);
+      if (skills.length === 0) continue;
+      const loc = (j.locationRestrictions || []).join(", ") || "Remote";
+      const india = isIndiaLocation(loc, j.title, plain);
+      const stipend =
+        j.minSalary || j.maxSalary
+          ? `${j.currency || ""} ${j.minSalary || "?"}–${j.maxSalary || "?"} / ${j.salaryPeriod || "yr"}`.trim()
+          : null;
+      out.push({
+        title: j.title.trim(),
+        company: (j.companyName || "Company").trim(),
+        type: mapJobType(
+          [j.employmentType || "", ...(j.seniority || []), j.title].join(" ")
+        ),
+        work_mode: "remote",
+        location: loc,
+        skills,
+        stipend,
+        description: plain || j.title,
+        apply_url: apply,
+        source: india ? "Himalayas · India" : "Himalayas",
+        experience_level: /intern|entry/i.test(
+          `${(j.seniority || []).join(" ")} ${j.employmentType || ""} ${j.title}`
+        )
+          ? "internship"
+          : "junior",
+        india_focus: india,
+      });
+    }
+  }
+  return out;
+}

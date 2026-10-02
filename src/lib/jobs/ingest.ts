@@ -2,9 +2,12 @@ import { createServiceClient } from "@/lib/supabase/middleware";
 import {
   fetchAdzunaIndiaJobs,
   fetchArbeitnowJobs,
+  fetchHimalayasJobs,
+  fetchJobicyJobs,
   fetchRemoteOkJobs,
   fetchRemotiveIndiaJobs,
   fetchRemotiveJobs,
+  fetchTheMuseJobs,
   type NormalizedJob,
 } from "@/lib/jobs/sources";
 
@@ -68,8 +71,8 @@ async function ensureJobsBot(
       username: BOT_USERNAME,
       full_name: "DevCircle Jobs Bot",
       headline:
-        "Auto-posts jobs, India roles, internships & open-source issues into skill communities",
-      bio: "Fetches from Arbeitnow, Remote OK, Remotive, optional Adzuna India, and GitHub good-first-issues. Posts only into communities whose skill matches the listing.",
+        "Auto-posts jobs from Remotive, Remote OK, Arbeitnow, The Muse, Jobicy, Himalayas (+ optional Adzuna India)",
+      bio: "Fetches publicly available tech jobs from open job-board APIs every 30 minutes and shares them into skill-matched communities. LinkedIn/Naukri/Indeed are link-out only (no scrape).",
       onboarding_complete: true,
       is_demo: false,
       role: "student",
@@ -139,6 +142,9 @@ export async function ingestJobs(options?: {
 
   await run("Arbeitnow", () => fetchArbeitnowJobs(catalog));
   await run("RemoteOK", () => fetchRemoteOkJobs(catalog));
+  await run("TheMuse", () => fetchTheMuseJobs(catalog));
+  await run("Jobicy", () => fetchJobicyJobs(catalog));
+  await run("Himalayas", () => fetchHimalayasJobs(catalog));
   await run("AdzunaIN", () => fetchAdzunaIndiaJobs(catalog));
 
   if (includeRemotive) {

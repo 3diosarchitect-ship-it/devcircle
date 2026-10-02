@@ -160,11 +160,11 @@ export default async function OpportunitiesPage({
       />
 
       <div className="mb-6 rounded-xl border border-border/60 bg-secondary/20 p-4">
-        <p className="mb-1 text-sm font-medium">LinkedIn · Naukri · Indeed</p>
+        <p className="mb-1 text-sm font-medium">Job portals we pull from</p>
         <p className="mb-3 text-xs text-muted-foreground">
-          These boards don&apos;t give free job APIs (partner-only / no public
-          feed). We don&apos;t scrape them. Paste a job URL in a community post,
-          or search on their site:
+          Auto-fetch: Remotive, Remote OK, Arbeitnow, The Muse, Jobicy,
+          Himalayas (+ Adzuna India if keys set). LinkedIn / Naukri / Indeed have
+          no free API — paste a URL or search on their site:
         </p>
         <BigBoardSearchLinks
           query={communitySkill || skillNames[0] || "software developer"}
