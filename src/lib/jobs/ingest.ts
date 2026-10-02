@@ -142,8 +142,12 @@ export async function ingestJobs(options?: {
 
   await run("Arbeitnow", () => fetchArbeitnowJobs(catalog));
   await run("RemoteOK", () => fetchRemoteOkJobs(catalog));
-  await run("GitHubOSS", () => fetchGithubOpenSourceProjects(catalog));
   await run("AdzunaIN", () => fetchAdzunaIndiaJobs(catalog));
+  // OSS is optional / lower volume — keep out of main "jobs" flood
+  await run("GitHubOSS", async () => {
+    const all = await fetchGithubOpenSourceProjects(catalog);
+    return all.slice(0, 12);
+  });
 
   if (includeRemotive) {
     await run("Remotive", () => fetchRemotiveJobs(catalog));
@@ -154,10 +158,12 @@ export async function ingestJobs(options?: {
   const india = jobs.filter((j) => j.india_focus).length;
   const oss = jobs.filter((j) => j.source.includes("Open Source")).length;
 
-  // Prefer inserting India + OSS first so community feeds fill with relevant items
+  // Prefer real jobs (India first); OSS last so they don't flood Apply buttons
   const prioritized = [...jobs].sort((a, b) => {
     const score = (j: NormalizedJob) =>
-      (j.india_focus ? 2 : 0) + (j.source.includes("Open Source") ? 1 : 0);
+      (j.india_focus ? 3 : 0) +
+      (j.source.includes("Open Source") ? -5 : 2) +
+      (j.type === "internship" ? 1 : 0);
     return score(b) - score(a);
   });
 
@@ -250,8 +256,11 @@ export async function ingestJobs(options?: {
         { count: number; latestTitle: string }
       >();
 
-      // Community-wise: post into EVERY skill-matched community (cap 3 per job)
+      // Community-wise: real jobs only into communities (skip OSS issues as "jobs")
       for (const job of insertedJobs.slice(0, 40)) {
+        if (job.source.includes("Open Source") || job.title.startsWith("[OSS]")) {
+          continue;
+        }
         const targets: { id: string; name: string; slug: string }[] = [];
         for (const skill of job.skills) {
           for (const c of bySkill.get(skill) || []) {

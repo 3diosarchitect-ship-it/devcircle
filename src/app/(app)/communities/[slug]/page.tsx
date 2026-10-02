@@ -13,6 +13,7 @@ import { SkillChip } from "@/components/shared/skill-chip";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { calculateMatchScore } from "@/lib/matching";
+import { isOpenSourceListing } from "@/lib/utils";
 import type { LookingFor, Opportunity, PostType, Profile } from "@/types";
 
 export default async function CommunityDetailPage({
@@ -98,7 +99,9 @@ export default async function CommunityDetailPage({
       .contains("skills", [skillName])
       .order("created_at", { ascending: false })
       .limit(8);
-    relatedOpps = (opps || []) as Opportunity[];
+    relatedOpps = (opps || []).filter(
+      (o) => !isOpenSourceListing(o as Opportunity)
+    ) as Opportunity[];
     if (!relatedOpps.length) {
       const { data: demoOpps } = await supabase
         .from("opportunities")
@@ -106,7 +109,9 @@ export default async function CommunityDetailPage({
         .contains("skills", [skillName])
         .order("created_at", { ascending: false })
         .limit(8);
-      relatedOpps = (demoOpps || []) as Opportunity[];
+      relatedOpps = ((demoOpps || []) as Opportunity[]).filter(
+        (o) => !isOpenSourceListing(o)
+      );
     }
   }
 

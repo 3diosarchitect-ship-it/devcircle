@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { calculateMatchScore } from "@/lib/matching";
-import { greeting, formatRelativeTime, applyLinkLabel, isLinkedInUrl } from "@/lib/utils";
+import { greeting, formatRelativeTime, applyLinkLabel, isLinkedInUrl, isOpenSourceListing } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { OpportunityListWithSave } from "@/components/opportunities/opportunity-list-with-save";
 import { MemberCard } from "@/components/communities/member-card";
@@ -70,6 +70,7 @@ export default async function DashboardPage() {
   const savedIds = new Set((saved || []).map((s) => s.opportunity_id));
 
   const matched = (opportunities || [])
+    .filter((opp) => !isOpenSourceListing(opp as Opportunity))
     .map((opp) => {
       const result = calculateMatchScore(
         {

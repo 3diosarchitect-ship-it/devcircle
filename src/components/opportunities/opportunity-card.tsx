@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { DemoBadge } from "@/components/shared/demo-badge";
 import { MatchBadge } from "@/components/shared/match-badge";
 import { SkillChip } from "@/components/shared/skill-chip";
-import { applyLinkLabel, cn, formatRelativeTime } from "@/lib/utils";
+import { applyLinkLabel, cn, formatRelativeTime, isOpenSourceListing } from "@/lib/utils";
 import { detectJobBoard, jobBoardLabel } from "@/lib/jobs/big-boards";
 import { OPPORTUNITY_TYPE_LABELS, type Opportunity } from "@/types";
 import { toast } from "sonner";
@@ -51,6 +51,7 @@ export function OpportunityCard({
   const cta = applyLinkLabel(opportunity.apply_url);
   const board = detectJobBoard(opportunity.apply_url);
   const boardName = jobBoardLabel(board);
+  const isOss = isOpenSourceListing(opportunity);
 
   function handleApply() {
     if (onApply) {
@@ -99,7 +100,11 @@ export function OpportunityCard({
               {locationLine}
             </Badge>
           ) : null}
-          {boardName ? (
+          {isOss ? (
+            <Badge variant="outline" className="font-normal">
+              Open Source
+            </Badge>
+          ) : boardName ? (
             <Badge variant="outline" className="font-normal">
               {boardName}
             </Badge>

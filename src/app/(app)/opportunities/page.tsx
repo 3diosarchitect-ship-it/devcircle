@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Briefcase } from "lucide-react";
 import type { LookingFor, Opportunity, OpportunityType, WorkMode } from "@/types";
+import { isOpenSourceListing } from "@/lib/utils";
 
 export default async function OpportunitiesPage({
   searchParams,
@@ -103,13 +104,11 @@ export default async function OpportunitiesPage({
         ) || (o.source || "").toLowerCase().includes("india")
     );
   }
-  if (params.region === "oss") {
-    list = list.filter(
-      (o) =>
-        o.type === "project" ||
-        (o.source || "").toLowerCase().includes("open source") ||
-        (o.title || "").startsWith("[OSS]")
-    );
+  if (params.region === "oss" || params.type === "project") {
+    list = list.filter((o) => isOpenSourceListing(o));
+  } else {
+    // Default feed = real jobs only (not GitHub good-first-issues)
+    list = list.filter((o) => !isOpenSourceListing(o));
   }
   if (params.saved === "1") {
     list = list.filter((o) => savedIds.has(o.id));

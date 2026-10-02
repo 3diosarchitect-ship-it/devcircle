@@ -83,8 +83,34 @@ export function applyLinkLabel(url: string | null | undefined): string {
   const board = detectJobBoard(url);
   const name = jobBoardLabel(board);
   if (name) return `Open on ${name}`;
+  if (url && /github\.com/i.test(url)) return "View on GitHub";
   if (url?.trim()) return "Open job link";
   return "Apply";
+}
+
+export function isGithubIssueUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    return (
+      (u.hostname === "github.com" || u.hostname === "www.github.com") &&
+      u.pathname.includes("/issues/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isOpenSourceListing(opp: {
+  title?: string | null;
+  source?: string | null;
+  apply_url?: string | null;
+  type?: string | null;
+}): boolean {
+  if (opp.type === "project") return true;
+  if ((opp.title || "").startsWith("[OSS]")) return true;
+  if ((opp.source || "").toLowerCase().includes("open source")) return true;
+  return isGithubIssueUrl(opp.apply_url);
 }
 
 export function profileCompletion(profile: {
