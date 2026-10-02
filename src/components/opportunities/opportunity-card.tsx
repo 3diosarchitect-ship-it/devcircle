@@ -15,6 +15,7 @@ import { MatchBadge } from "@/components/shared/match-badge";
 import { SkillChip } from "@/components/shared/skill-chip";
 import { applyLinkLabel, cn, formatRelativeTime, isOpenSourceListing } from "@/lib/utils";
 import { detectJobBoard, jobBoardLabel } from "@/lib/jobs/big-boards";
+import { postedByLine } from "@/lib/jobs/sources";
 import { OPPORTUNITY_TYPE_LABELS, type Opportunity } from "@/types";
 import { toast } from "sonner";
 
@@ -52,6 +53,16 @@ export function OpportunityCard({
   const board = detectJobBoard(opportunity.apply_url);
   const boardName = jobBoardLabel(board);
   const isOss = isOpenSourceListing(opportunity);
+  const descRaw = opportunity.description || "";
+  const byMatch = descRaw.match(/Posted by .+ on .+$/m);
+  const byLine =
+    byMatch?.[0] ||
+    (opportunity.source
+      ? postedByLine(opportunity.source, opportunity.created_at)
+      : null);
+  const description = byMatch
+    ? descRaw.replace(/\n*Posted by .+ on .+$/m, "").trim()
+    : descRaw;
 
   function handleApply() {
     if (onApply) {
@@ -112,10 +123,13 @@ export function OpportunityCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        {opportunity.description ? (
+        {description ? (
           <p className="line-clamp-3 text-sm text-muted-foreground">
-            {opportunity.description}
+            {description}
           </p>
+        ) : null}
+        {byLine ? (
+          <p className="text-xs text-muted-foreground">{byLine}</p>
         ) : null}
         {skills.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
@@ -135,9 +149,6 @@ export function OpportunityCard({
             <Clock className="size-3.5" aria-hidden />
             {formatRelativeTime(opportunity.created_at)}
           </span>
-          {opportunity.source ? (
-            <span>Source: {opportunity.source}</span>
-          ) : null}
         </div>
         {matchReasons && matchReasons.length > 0 ? (
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">

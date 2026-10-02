@@ -14,7 +14,39 @@ export type NormalizedJob = {
   experience_level: string;
   /** Prefer matching into India-focused community feeds */
   india_focus?: boolean;
+  /** When the job was listed on the source portal (ISO or Date-parseable) */
+  posted_at?: string | null;
 };
+
+/** Clean portal name for display: "Himalayas · India" → "Himalayas" */
+export function portalDisplayName(source: string): string {
+  return source.split("·")[0].trim() || source;
+}
+
+/** e.g. 14 Sep 2026 */
+export function formatPortalDate(date?: string | Date | null): string {
+  const d = date ? new Date(date) : new Date();
+  if (Number.isNaN(d.getTime())) {
+    return new Date().toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** Line for job description: Posted by Himalayas on 14 Sep 2026 */
+export function postedByLine(
+  source: string,
+  postedAt?: string | Date | null
+): string {
+  return `Posted by ${portalDisplayName(source)} on ${formatPortalDate(postedAt)}`;
+}
 
 const TECH_HINT =
   /react|node|python|django|java|typescript|javascript|swift|kotlin|flutter|android|ios|devops|aws|cloud|mongo|mern|sql|backend|frontend|full.?stack|software|engineer|developer|ml|machine learning|ai|data|ux|ui|design|security|golang|rust|c\+\+|mobile|web|internship|freelance/i;
@@ -119,6 +151,7 @@ export async function fetchArbeitnowJobs(
       tags?: string[];
       job_types?: string[];
       location?: string;
+      created_at?: string;
     }>;
   };
 
@@ -143,6 +176,7 @@ export async function fetchArbeitnowJobs(
       source: india ? "Arbeitnow · India" : "Arbeitnow",
       experience_level: /intern/i.test(j.title) ? "internship" : "junior",
       india_focus: india,
+      posted_at: j.created_at || null,
     });
   }
   return out;
@@ -187,6 +221,7 @@ export async function fetchRemoteOkJobs(
       source: india ? "Remote OK · India" : "Remote OK",
       experience_level: /intern/i.test(title) ? "internship" : "junior",
       india_focus: india,
+      posted_at: row.date ? String(row.date) : null,
     });
   }
   return out;
@@ -214,6 +249,7 @@ export async function fetchRemotiveJobs(
       salary?: string;
       description?: string;
       candidate_required_location?: string;
+      publication_date?: string;
     }>;
   };
 
@@ -238,6 +274,7 @@ export async function fetchRemotiveJobs(
       source: india ? "Remotive · India" : "Remotive",
       experience_level: /intern/i.test(j.title) ? "internship" : "junior",
       india_focus: india,
+      posted_at: j.publication_date || null,
     });
   }
   return out;
@@ -556,6 +593,7 @@ export async function fetchHimalayasJobs(
         maxSalary?: number;
         currency?: string;
         salaryPeriod?: string;
+        pubDate?: number | string;
       }>;
     };
 
@@ -574,6 +612,12 @@ export async function fetchHimalayasJobs(
         j.minSalary || j.maxSalary
           ? `${j.currency || ""} ${j.minSalary || "?"}–${j.maxSalary || "?"} / ${j.salaryPeriod || "yr"}`.trim()
           : null;
+      const postedAt =
+        typeof j.pubDate === "number"
+          ? new Date(j.pubDate * (j.pubDate < 2e10 ? 1000 : 1)).toISOString()
+          : j.pubDate
+            ? String(j.pubDate)
+            : null;
       out.push({
         title: j.title.trim(),
         company: (j.companyName || "Company").trim(),
@@ -593,6 +637,7 @@ export async function fetchHimalayasJobs(
           ? "internship"
           : "junior",
         india_focus: india,
+        posted_at: postedAt,
       });
     }
   }

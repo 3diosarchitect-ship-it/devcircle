@@ -163,27 +163,27 @@ export default async function CommunityDetailPage({
           ) : (
             <PostFeedList
               posts={(posts || []).map((p) => {
-                const author = p.author as {
+      const author = p.author as {
                   username: string | null;
-                  full_name: string | null;
-                  avatar_url: string | null;
-                };
+        full_name: string | null;
+        avatar_url: string | null;
+      };
                 const card: PostCardData = {
-                  id: p.id,
-                  author_id: p.author_id,
-                  community_id: p.community_id,
+        id: p.id,
+        author_id: p.author_id,
+        community_id: p.community_id,
                   type: p.type as PostType,
-                  content: p.content,
+        content: p.content,
                   link_url: (p as { link_url?: string | null }).link_url ?? null,
-                  like_count: p.like_count,
-                  comment_count: p.comment_count,
-                  is_demo: p.is_demo,
-                  created_at: p.created_at,
-                  author: {
-                    name: author.full_name ?? author.username ?? "Developer",
-                    username: author.username,
-                    avatar_url: author.avatar_url,
-                  },
+        like_count: p.like_count,
+        comment_count: p.comment_count,
+        is_demo: p.is_demo,
+        created_at: p.created_at,
+        author: {
+          name: author.full_name ?? author.username ?? "Developer",
+          username: author.username,
+          avatar_url: author.avatar_url,
+        },
                   community: { name: community.name, slug: community.slug },
                   liked: likedIds.has(p.id),
                 };
@@ -191,7 +191,7 @@ export default async function CommunityDetailPage({
               })}
             />
           )}
-        </div>
+      </div>
 
         <aside className="space-y-6">
           {skillName ? (
@@ -234,13 +234,13 @@ export default async function CommunityDetailPage({
                   Jobs for this community
                 </h2>
                 <Button variant="ghost" size="sm" asChild>
-                  <Link
+            <Link
                     href={`/opportunities?community=${community.slug}`}
-                  >
-                    View all
-                  </Link>
+            >
+              View all
+            </Link>
                 </Button>
-              </div>
+          </div>
               <div className="space-y-3">
                 <OpportunityListWithSave
                   items={relatedOpps.map((opp) => {
@@ -264,7 +264,7 @@ export default async function CommunityDetailPage({
             </div>
           )}
         </aside>
-      </div>
+        </div>
     </div>
   );
 }

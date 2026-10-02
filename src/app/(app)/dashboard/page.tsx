@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { calculateMatchScore } from "@/lib/matching";
-import { greeting, formatRelativeTime, formatPostedOn, applyLinkLabel, isLinkedInUrl, isOpenSourceListing } from "@/lib/utils";
+import { greeting, formatRelativeTime, applyLinkLabel, isLinkedInUrl, isOpenSourceListing } from "@/lib/utils";
 import { PageHeader } from "@/components/shared/page-header";
 import { OpportunityListWithSave } from "@/components/opportunities/opportunity-list-with-save";
 import { MemberCard } from "@/components/communities/member-card";
@@ -270,9 +270,6 @@ export default async function DashboardPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2 text-sm">
-                          <span className="text-xs text-muted-foreground">
-                            Posted by
-                          </span>
                           <span className="font-medium">
                             {author?.full_name || "Member"}
                           </span>
@@ -281,12 +278,10 @@ export default async function DashboardPage() {
                               in {community.name}
                             </span>
                           )}
+                          <span className="text-xs text-muted-foreground">
+                            · {formatRelativeTime(p.created_at)}
+                          </span>
                         </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          Posted on {formatPostedOn(p.created_at)}
-                          <span className="mx-1.5">·</span>
-                          {formatRelativeTime(p.created_at)}
-                        </p>
                         <span className="mt-1 inline-block rounded-md bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground">
                           {POST_TYPE_LABELS[p.type as PostType] || p.type}
                           {isLinkedInUrl(linkUrl) ? " · LinkedIn" : ""}

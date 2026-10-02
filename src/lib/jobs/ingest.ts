@@ -8,6 +8,7 @@ import {
   fetchRemotiveIndiaJobs,
   fetchRemotiveJobs,
   fetchTheMuseJobs,
+  postedByLine,
   type NormalizedJob,
 } from "@/lib/jobs/sources";
 
@@ -190,7 +191,11 @@ export async function ingestJobs(options?: {
           location: j.location,
           skills: j.skills,
           stipend: j.stipend,
-          description: j.description,
+          description: [
+            j.description,
+            "",
+            postedByLine(j.source, j.posted_at),
+          ].join("\n"),
           apply_url: j.apply_url,
           source: j.source,
           experience_level: j.experience_level,
@@ -263,16 +268,9 @@ export async function ingestJobs(options?: {
           const key = `${target.id}:${job.apply_url}`;
           if (postKeys.has(key)) continue;
           postKeys.add(key);
-          const postedOn = new Date().toLocaleString("en-IN", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-            timeZone: "Asia/Kolkata",
-          });
           const badge = job.india_focus ? "🇮🇳 India" : "💼 Job";
           const headline = `${job.title} @ ${job.company}`;
+          const byLine = postedByLine(job.source, job.posted_at);
           posts.push({
             author_id: botId,
             community_id: target.id,
@@ -284,10 +282,7 @@ export async function ingestJobs(options?: {
               "",
               job.description.slice(0, 260),
               "",
-              `Source: ${job.source}`,
-              `Posted by: DevCircle Jobs Bot`,
-              `Posted on: ${postedOn} IST`,
-              `Community: ${target.name}`,
+              byLine,
             ]
               .filter((line) => line !== null)
               .join("\n"),

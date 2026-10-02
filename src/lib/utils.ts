@@ -43,19 +43,6 @@ export function formatRelativeTime(date: string | Date): string {
   return d.toLocaleDateString();
 }
 
-/** Absolute date for "Posted on" (e.g. 2 Oct 2026, 12:40) */
-export function formatPostedOn(date: string | Date): string {
-  const d = typeof date === "string" ? new Date(date) : date;
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export function isValidGithubUrl(url: string): boolean {
   if (!url.trim()) return true;
   try {
