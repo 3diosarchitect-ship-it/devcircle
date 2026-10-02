@@ -129,6 +129,11 @@ export function LoginForm() {
             Create an account
           </Link>
         </p>
+        {process.env.NODE_ENV === "development" ? (
+          <p className="text-center text-[11px] text-muted-foreground">
+            Local demo: rahul@devcircle.demo / demo123456
+          </p>
+        ) : null}
       </CardFooter>
     </Card>
   );
