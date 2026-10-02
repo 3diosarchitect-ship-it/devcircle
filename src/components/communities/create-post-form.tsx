@@ -93,17 +93,17 @@ export function CreatePostForm({
       />
       {showLinkField ? (
         <div className="space-y-2">
-          <Label htmlFor="job-link">Job link (LinkedIn / careers page)</Label>
+          <Label htmlFor="job-link">Job link (LinkedIn / Naukri / Indeed)</Label>
           <Input
             id="job-link"
             type="url"
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
-            placeholder="https://www.linkedin.com/jobs/view/…"
+            placeholder="https://www.naukri.com/… or linkedin.com/jobs/view/…"
           />
           <p className="text-xs text-muted-foreground">
-            Paste the LinkedIn job URL. Members tap it and open LinkedIn — we
-            do not scrape listings.
+            Paste a real job URL from LinkedIn, Naukri, or Indeed. Members tap
+            → open that site. We never scrape those boards.
           </p>
         </div>
       ) : null}

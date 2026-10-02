@@ -8,6 +8,7 @@ import type { PostCardData } from "@/components/communities/post-card";
 import { CreatePostForm } from "@/components/communities/create-post-form";
 import { JoinCommunityButton } from "@/components/communities/join-button";
 import { OpportunityListWithSave } from "@/components/opportunities/opportunity-list-with-save";
+import { BigBoardSearchLinks } from "@/components/opportunities/big-board-search";
 import { SkillChip } from "@/components/shared/skill-chip";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
@@ -188,6 +189,16 @@ export default async function CommunityDetailPage({
         </div>
 
         <aside className="space-y-6">
+          {skillName ? (
+            <div className="rounded-xl border border-border/60 bg-secondary/20 p-4">
+              <p className="mb-1 text-sm font-medium">Find more on big boards</p>
+              <BigBoardSearchLinks
+                query={`${skillName} developer`}
+                location="India"
+              />
+            </div>
+          ) : null}
+
           <div>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Members

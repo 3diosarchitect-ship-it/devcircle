@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { calculateMatchScore } from "@/lib/matching";
 import { PageHeader } from "@/components/shared/page-header";
 import { OpportunityListWithSave } from "@/components/opportunities/opportunity-list-with-save";
+import { BigBoardSearchLinks } from "@/components/opportunities/big-board-search";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { Briefcase } from "lucide-react";
@@ -162,6 +163,19 @@ export default async function OpportunitiesPage({
             : "Internships, freelance, India roles, and open-source projects matched to your skills."
         }
       />
+
+      <div className="mb-6 rounded-xl border border-border/60 bg-secondary/20 p-4">
+        <p className="mb-1 text-sm font-medium">LinkedIn · Naukri · Indeed</p>
+        <p className="mb-3 text-xs text-muted-foreground">
+          These boards don&apos;t give free job APIs (partner-only / no public
+          feed). We don&apos;t scrape them. Paste a job URL in a community post,
+          or search on their site:
+        </p>
+        <BigBoardSearchLinks
+          query={communitySkill || skillNames[0] || "software developer"}
+          location={profile.city || "India"}
+        />
+      </div>
 
       <div className="mb-6 flex flex-wrap gap-2">
         {types.map((t) => (

@@ -76,9 +76,13 @@ export function isLinkedInUrl(url: string | null | undefined): boolean {
   }
 }
 
+import { detectJobBoard, jobBoardLabel } from "@/lib/jobs/big-boards";
+
 /** CTA label when opening an external apply / job link */
 export function applyLinkLabel(url: string | null | undefined): string {
-  if (isLinkedInUrl(url)) return "Open on LinkedIn";
+  const board = detectJobBoard(url);
+  const name = jobBoardLabel(board);
+  if (name) return `Open on ${name}`;
   if (url?.trim()) return "Open job link";
   return "Apply";
 }

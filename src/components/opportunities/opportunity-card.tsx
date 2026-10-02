@@ -13,7 +13,8 @@ import { Badge } from "@/components/ui/badge";
 import { DemoBadge } from "@/components/shared/demo-badge";
 import { MatchBadge } from "@/components/shared/match-badge";
 import { SkillChip } from "@/components/shared/skill-chip";
-import { applyLinkLabel, cn, formatRelativeTime, isLinkedInUrl } from "@/lib/utils";
+import { applyLinkLabel, cn, formatRelativeTime } from "@/lib/utils";
+import { detectJobBoard, jobBoardLabel } from "@/lib/jobs/big-boards";
 import { OPPORTUNITY_TYPE_LABELS, type Opportunity } from "@/types";
 import { toast } from "sonner";
 
@@ -48,7 +49,8 @@ export function OpportunityCard({
     .filter(Boolean)
     .join(" · ");
   const cta = applyLinkLabel(opportunity.apply_url);
-  const linkedIn = isLinkedInUrl(opportunity.apply_url);
+  const board = detectJobBoard(opportunity.apply_url);
+  const boardName = jobBoardLabel(board);
 
   function handleApply() {
     if (onApply) {
@@ -97,9 +99,9 @@ export function OpportunityCard({
               {locationLine}
             </Badge>
           ) : null}
-          {linkedIn ? (
+          {boardName ? (
             <Badge variant="outline" className="font-normal">
-              LinkedIn
+              {boardName}
             </Badge>
           ) : null}
         </div>
