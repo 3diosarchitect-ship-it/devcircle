@@ -263,6 +263,14 @@ export async function ingestJobs(options?: {
           const key = `${target.id}:${job.apply_url}`;
           if (postKeys.has(key)) continue;
           postKeys.add(key);
+          const postedOn = new Date().toLocaleString("en-IN", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            timeZone: "Asia/Kolkata",
+          });
           const badge = job.india_focus ? "🇮🇳 India" : "💼 Job";
           const headline = `${job.title} @ ${job.company}`;
           posts.push({
@@ -276,7 +284,10 @@ export async function ingestJobs(options?: {
               "",
               job.description.slice(0, 260),
               "",
-              `Matched to ${target.name} · Source: ${job.source}`,
+              `Source: ${job.source}`,
+              `Posted by: DevCircle Jobs Bot`,
+              `Posted on: ${postedOn} IST`,
+              `Community: ${target.name}`,
             ]
               .filter((line) => line !== null)
               .join("\n"),

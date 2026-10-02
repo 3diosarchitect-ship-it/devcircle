@@ -11,7 +11,13 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { UserAvatar } from "@/components/shared/user-avatar";
-import { applyLinkLabel, cn, formatRelativeTime, isLinkedInUrl } from "@/lib/utils";
+import {
+  applyLinkLabel,
+  cn,
+  formatPostedOn,
+  formatRelativeTime,
+  isLinkedInUrl,
+} from "@/lib/utils";
 import { POST_TYPE_LABELS, type Post, type PostType } from "@/types";
 
 export type PostCardData = Post & {
@@ -42,6 +48,7 @@ export function PostCard({
     ? `/u/${post.author.username}`
     : undefined;
   const linkUrl = post.link_url?.trim() || null;
+  const authorName = post.author.name || "Member";
 
   return (
     <Card className={cn(className)}>
@@ -50,29 +57,30 @@ export function PostCard({
           {authorHref ? (
             <Link href={authorHref}>
               <UserAvatar
-                name={post.author.name}
+                name={authorName}
                 src={post.author.avatar_url}
                 size="sm"
               />
             </Link>
           ) : (
             <UserAvatar
-              name={post.author.name}
+              name={authorName}
               src={post.author.avatar_url}
               size="sm"
             />
           )}
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 space-y-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <span className="text-xs text-muted-foreground">Posted by</span>
               {authorHref ? (
                 <Link
                   href={authorHref}
                   className="font-medium text-foreground hover:text-emerald-300"
                 >
-                  {post.author.name}
+                  {authorName}
                 </Link>
               ) : (
-                <span className="font-medium">{post.author.name}</span>
+                <span className="font-medium">{authorName}</span>
               )}
               <span className="text-muted-foreground">·</span>
               <Link
@@ -81,10 +89,12 @@ export function PostCard({
               >
                 {post.community.name}
               </Link>
-              <span className="text-xs text-muted-foreground">
-                · {formatRelativeTime(post.created_at)}
-              </span>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Posted on {formatPostedOn(post.created_at)}
+              <span className="mx-1.5">·</span>
+              {formatRelativeTime(post.created_at)}
+            </p>
           </div>
           <PostTypeBadge type={post.type} />
         </div>
