@@ -5,9 +5,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Hourly job bot.
+ * Jobs bot endpoint.
  * Auth: Authorization: Bearer <CRON_SECRET>  OR  ?secret=<CRON_SECRET>
- * Vercel Cron hits this every hour when vercel.json is configured.
+ * Triggered every 30 minutes via GitHub Actions (Hobby Vercel has no sub-daily crons).
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;

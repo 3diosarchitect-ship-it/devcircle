@@ -1,0 +1,27 @@
+# Runs every 30 minutes (Vercel Hobby only allows daily crons).
+name: Jobs bot (30m)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger DevCircle jobs cron
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CRON_URL: ${{ vars.CRON_URL }}
+        run: |
+          URL="${CRON_URL:-https://devcircle-six.vercel.app/api/cron/jobs}"
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing CRON_SECRET repo secret"
+            exit 1
+          fi
+          curl -fsS -X GET \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${URL}?remotive=1"
+          echo
+          echo "OK $(date -u +%Y-%m-%dT%H:%M:%SZ)"
