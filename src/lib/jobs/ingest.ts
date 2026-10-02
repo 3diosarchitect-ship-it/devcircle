@@ -215,15 +215,24 @@ export async function ingestJobs(options?: {
       const botId = await ensureJobsBot(supabase);
       const { data: communities } = await supabase
         .from("communities")
-        .select("id, name, skill:skills(name)")
+        .select("id, name, slug, skill:skills(name)")
         .not("skill_id", "is", null);
 
-      const bySkill = new Map<string, { id: string; name: string }[]>();
+      const bySkill = new Map<
+        string,
+        { id: string; name: string; slug: string }[]
+      >();
+      const communityById = new Map<
+        string,
+        { id: string; name: string; slug: string }
+      >();
       for (const c of communities || []) {
         const skillName = (c.skill as unknown as { name?: string } | null)?.name;
+        const row = { id: c.id, name: c.name, slug: c.slug };
+        communityById.set(c.id, row);
         if (!skillName) continue;
         const list = bySkill.get(skillName) || [];
-        list.push({ id: c.id, name: c.name });
+        list.push(row);
         bySkill.set(skillName, list);
       }
 
@@ -236,10 +245,14 @@ export async function ingestJobs(options?: {
         is_demo: boolean;
       }[] = [];
       const postKeys = new Set<string>();
+      const digestMap = new Map<
+        string,
+        { count: number; latestTitle: string }
+      >();
 
       // Community-wise: post into EVERY skill-matched community (cap 3 per job)
       for (const job of insertedJobs.slice(0, 40)) {
-        const targets: { id: string; name: string }[] = [];
+        const targets: { id: string; name: string; slug: string }[] = [];
         for (const skill of job.skills) {
           for (const c of bySkill.get(skill) || []) {
             if (!targets.some((t) => t.id === c.id)) targets.push(c);
@@ -254,12 +267,13 @@ export async function ingestJobs(options?: {
             : job.source.includes("Open Source")
               ? "🌱 Open Source"
               : "💼 Job";
+          const headline = `${job.title} @ ${job.company}`;
           posts.push({
             author_id: botId,
             community_id: target.id,
             type: "opportunity",
             content: [
-              `${badge} ${job.title} @ ${job.company}`,
+              `${badge} ${headline}`,
               job.location ? `📍 ${job.location}` : null,
               job.skills.length ? `Skills: ${job.skills.join(", ")}` : null,
               "",
@@ -272,16 +286,54 @@ export async function ingestJobs(options?: {
             link_url: job.apply_url,
             is_demo: false,
           });
+          const prev = digestMap.get(target.id) || {
+            count: 0,
+            latestTitle: headline,
+          };
+          digestMap.set(target.id, {
+            count: prev.count + 1,
+            latestTitle: prev.count === 0 ? headline : prev.latestTitle,
+          });
         }
       }
 
       if (posts.length) {
-        // Insert in chunks to avoid payload limits
         for (let i = 0; i < posts.length; i += 40) {
           const chunk = posts.slice(i, i + 40);
           const { error: postErr } = await supabase.from("posts").insert(chunk);
           if (postErr) errors.push(`posts: ${postErr.message}`);
           else posted += chunk.length;
+        }
+
+        // Notify members of each joined community that received new jobs
+        try {
+          const { notifyJobDigests } = await import("@/lib/notifications");
+          const digests = [...digestMap.entries()]
+            .map(([communityId, d]) => {
+              const c = communityById.get(communityId);
+              if (!c) return null;
+              return {
+                communityId,
+                communityName: c.name,
+                communitySlug: c.slug,
+                count: d.count,
+                latestTitle: d.latestTitle,
+              };
+            })
+            .filter(Boolean) as Array<{
+            communityId: string;
+            communityName: string;
+            communitySlug: string;
+            count: number;
+            latestTitle: string;
+          }>;
+
+          const notified = await notifyJobDigests(supabase, digests, [botId]);
+          sources.push(`notified:${notified}`);
+        } catch (e) {
+          errors.push(
+            `notify: ${e instanceof Error ? e.message : String(e)}`
+          );
         }
       }
     } catch (e) {

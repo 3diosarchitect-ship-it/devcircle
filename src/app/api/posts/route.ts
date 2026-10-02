@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { isValidUrl } from "@/lib/utils";
+import { notifyCommunityMembers } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -36,6 +37,34 @@ export async function POST(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Notify joined members when an opportunity / job link is shared
+  if (type === "opportunity") {
+    const { data: community } = await supabase
+      .from("communities")
+      .select("id, name, slug")
+      .eq("id", communityId)
+      .single();
+
+    if (community) {
+      const firstLine =
+        content
+          .trim()
+          .split("\n")
+          .map((l: string) => l.trim())
+          .find(Boolean) || "New opportunity";
+      await notifyCommunityMembers(supabase, {
+        communityId: community.id,
+        communityName: community.name,
+        communitySlug: community.slug,
+        title: `New job in ${community.name}`,
+        body: firstLine.slice(0, 160),
+        excludeProfileIds: [user.id],
+        link: `/communities/${community.slug}`,
+      });
+    }
+  }
+
   return NextResponse.json({ post: data });
 }
 

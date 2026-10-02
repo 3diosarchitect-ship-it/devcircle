@@ -25,7 +25,7 @@ export default async function NotificationsPage() {
     <div>
       <PageHeader
         title="Notifications"
-        description="Community joins, matches, and teammate activity."
+        description="Jobs in your communities, joins, matches, and teammate activity."
       >
         <MarkReadButton />
       </PageHeader>
@@ -34,7 +34,7 @@ export default async function NotificationsPage() {
         <EmptyState
           icon={Bell}
           title="You're all caught up"
-          description="Notifications about communities and matches will show up here."
+          description="When a job is posted in a community you joined, it shows up here."
           actionLabel="Go to Dashboard"
           actionHref="/dashboard"
         />
